@@ -236,7 +236,7 @@
   }
   if(!customElements.get("indoor-training-central-card"))customElements.define("indoor-training-central-card",Card);
   // Existing dashboards retain the legacy card type.
-  if(!customElements.get("homefitnesscode-card"))customElements.define("homefitnesscode-card",Card);
+  if(!customElements.get("homefitnesscode-card"))customElements.define("homefitnesscode-card",class LegacyIndoorTrainingCard extends Card {});
   window.customCards=window.customCards||[];
   if(!window.customCards.some(card=>card.type==="indoor-training-central-card")){
     window.customCards.push({type:"indoor-training-central-card",name:"HA-IndoorTrainingCentral",description:"Inomhusträning: löpband, cykel, rodd och HEADWIND"});

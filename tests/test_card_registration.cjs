@@ -9,7 +9,12 @@ const scope = {
   window: {customCards: []},
   customElements: {
     get(name){return registry.get(name);},
-    define(name, cls){registry.set(name, cls);}
+    define(name, cls){
+      if(registry.has(name) || [...registry.values()].includes(cls)){
+        throw new Error("NotSupportedError: tag or constructor already registered");
+      }
+      registry.set(name, cls);
+    }
   }
 };
 vm.runInNewContext(code, scope);
