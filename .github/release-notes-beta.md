@@ -1,13 +1,14 @@
-# HA-IndoorTrainingCentral 2026.11.0b3 (beta)
+# HA-IndoorTrainingCentral 2026.11.0b4 (beta)
 
-- Public rebranding: GitHub repo, Marketplace display name, HA integration and dashboard.
-- Preserves existing integration domain `homefitnesscode`, config entries, entity IDs, and old dashboard card type/resource.
-- Introduces card `custom:indoor-training-central-card` and new optional resource URL.
-- Responsive layout for narrow dashboard columns, mobile and desktop.
-- Device-dependent controls, cleaner connection status, and improved names.
-- Wahoo HEADWIND remains integrated with Tacx cycling view and in its own view.
-- Rename 'Arm remote control' to 'Aktivera styrning' (the FTMS Request Control function).
-- No automatic motor or fan mode changes on reconnect.
-- No FIT generation yet; it remains a separate upcoming workstream.
+## Connection indicators
 
-Offline tests and UI smoke checks run in CI; verify all physical controls in HA before enabling remote writes.
+- Green status dot + **Ansluten** when the selected device's Home Assistant Bluetooth connection sensor is on.
+- Grey status dot + **Frånkopplad** when it is off.
+- Amber status dot + **Status okänd** when the sensor value is unavailable or unknown, avoiding false green positives.
+- Show localized workout detail such as **Redo** beside the connected status.
+- Apply the same connection indicator to the Wahoo HEADWIND accessory panel. Its **Av** fan state is not confused with Bluetooth disconnection.
+- Include JavaScript smoke tests for the connection state mappings.
+
+The internal `homefitnesscode` domain and existing dashboards remain compatible. No BLE command semantics, FIT export, or recording behavior is changed.
+
+Strength-training artwork in the project icon is visual branding only; resistance-training device support is **not implemented** at this stage.

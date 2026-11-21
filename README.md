@@ -29,7 +29,7 @@ This beta is distributed as a GitHub **pre-release**, not from the development b
 1. In Home Assistant go to **Settings → Marketplace → Add from link**.
 2. Add `https://github.com/Jocke1970/HA-IndoorTrainingCentral` as an **Integration**.
 3. Open HA-IndoorTrainingCentral in Marketplace and enable **Pre-release**.
-4. Install the newest `2026.11.0bN` pre-release (currently `2026.11.0b3`), not the `main` branch.
+4. Install the newest `2026.11.0bN` pre-release (currently `2026.11.0b4`), not the `main` branch.
 5. Open **Settings → Devices & services** and configure HA-IndoorTrainingCentral.
 6. For new dashboards, register `/indoor-training-central/indoor-training-central-card.js` as a JavaScript module and add:
 
@@ -77,3 +77,12 @@ Narrow desktop dashboard columns and phones are handled by a responsive tile/con
 Do **not** manually rename `/config/custom_components/homefitnesscode`: that is the original integration domain and is intentionally unchanged.
 
 FIT session export remains planned, not implemented.
+
+## Status indicators (beta b4)
+
+Live Bluetooth status uses a colored dot **and** a text label:
+- Green **Ansluten**: the equipment's `connected` binary sensor is `on`.
+- Grey **Frånkopplad**: the sensor is `off`.
+- Amber **Status okänd**: unavailable, unknown, or missing.
+
+Workout details such as **Redo** are shown separately. The Wahoo HEADWIND section also distinguishes a physically switched-off fan from a disconnected Bluetooth connection. The barbell in the optional project artwork represents a future category, **not** a current strength-training device connection.

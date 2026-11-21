@@ -25,3 +25,18 @@ assert.equal(scope.window.customCards[0].type, "indoor-training-central-card");
 vm.runInNewContext(code, scope);
 assert.equal(scope.window.customCards.length, 1);
 console.log("IndoorTrainingCentral UI registration smoke test passed");
+
+const Card=registry.get("indoor-training-central-card");
+const view=new Card();
+const signal=(state,session)=>view.connectionStatus({
+  connected:{state},session_status:{state:session}
+});
+assert.equal(signal("on","ready").kind,"connected");
+assert.equal(signal("on","ready").label,"Ansluten");
+assert.equal(signal("on","ready").detail,"Redo");
+assert.equal(signal("on","disconnected").detail,"");
+assert.equal(signal("off","ready").kind,"disconnected");
+assert.equal(signal("off","ready").label,"Frånkopplad");
+assert.equal(signal("unavailable","unknown").kind,"unknown");
+assert.equal(signal("unknown","unknown").label,"Status okänd");
+console.log("Bluetooth connection badge state tests passed");
