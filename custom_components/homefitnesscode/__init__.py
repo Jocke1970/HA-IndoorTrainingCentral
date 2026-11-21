@@ -39,8 +39,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     def prune_old_registry_entries() -> None:
         kind = state.data.get("machine_type", "auto")
-        if kind not in ("headwind", "bike", "rower", "treadmill"):
-            return  # Do not erase data for an unclassified offline BLE device.
+        if kind not in ("headwind", "bike", "rower", "treadmill", "auto"):
+            return  # Unknown BLE device gets a minimal diagnostic entity set.
         profile = entry.data.get("profile", "auto")
         if profile == "auto":
             transport = getattr(state, "transport", None)
