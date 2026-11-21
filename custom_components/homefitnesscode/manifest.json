@@ -1,9 +1,9 @@
 {
   "domain": "homefitnesscode",
-  "name": "HomeFitnessCode / FTMS (pre-release only)",
+  "name": "HA-IndoorTrainingCentral (pre-release only)",
   "version": "0.0.0",
-  "documentation": "https://github.com/Jocke1970/HomeFitnessCode",
-  "issue_tracker": "https://github.com/Jocke1970/HomeFitnessCode/issues",
+  "documentation": "https://github.com/Jocke1970/HA-IndoorTrainingCentral",
+  "issue_tracker": "https://github.com/Jocke1970/HA-IndoorTrainingCentral/issues",
   "codeowners": [
     "@Jocke1970"
   ],
