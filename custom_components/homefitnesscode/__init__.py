@@ -6,6 +6,7 @@ from homeassistant.config_entries import ConfigEntry
 
 from .const import DOMAIN, PLATFORMS
 from .coordinator import HFCState
+from .headwind import HeadwindState
 
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
@@ -17,7 +18,9 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    state = HFCState(hass, entry)
+    state = (HeadwindState(hass, entry)
+             if entry.data.get('profile') == 'wahoo_headwind'
+             else HFCState(hass, entry))
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = state
     await state.async_config_entry_first_refresh()
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)

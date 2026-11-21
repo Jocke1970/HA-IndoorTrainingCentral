@@ -26,10 +26,13 @@ class HomeFitnessCodeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input is None:
             return self.async_show_form(step_id="confirm",
                                         description_placeholders={"name": self._found_name})
+        is_headwind = self._found_name.upper().startswith(("HEADWIND", "KICKR HEADWIND"))
         return self.async_create_entry(
             title=self._found_name,
-            data={"address": self._found_address, "profile": "auto",
-                  "machine": "auto", **{f"max_{k}": v for k, v in CAP_DEFAULTS.items()}}
+            data={"address": self._found_address,
+                  "profile": "wahoo_headwind" if is_headwind else "auto",
+                  "machine": "headwind" if is_headwind else "auto",
+                  **{f"max_{k}": v for k, v in CAP_DEFAULTS.items()}}
         )
 
     async def async_step_user(self, user_input=None):
@@ -44,10 +47,15 @@ class HomeFitnessCodeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             address = user_input["address"]
             await self.async_set_unique_id(address)
             self._abort_if_unique_id_configured()
-            return self.async_create_entry(
-                title=devices.get(address, address),
-                data=user_input,
-            )
+            data = dict(user_input)
+            name = devices.get(address, "")
+            if (data.get("profile") == "auto" and
+                    name.upper().startswith(("HEADWIND", "KICKR HEADWIND"))):
+                data["profile"] = "wahoo_headwind"
+                data["machine"] = "headwind"
+            if data.get("profile") == "wahoo_headwind":
+                data["machine"] = "headwind"
+            return self.async_create_entry(title=name or address, data=data)
         form = {
             vol.Required("address"): vol.In(devices),
             vol.Required("profile", default="auto"): vol.In(PROFILE_OPTIONS),

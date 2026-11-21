@@ -20,7 +20,7 @@ class HFCBinarySensor(HFCEntity, BinarySensorEntity):
 
 async def async_setup_entry(hass, entry, async_add_entities):
     coord = hass.data[DOMAIN][entry.entry_id]
-    async_add_entities([
-        HFCBinarySensor(coord, "connected", "Connected"),
-        HFCBinarySensor(coord, "armed", "Control armed"),
-    ])
+    entities = [HFCBinarySensor(coord, "connected", "Connected")]
+    if entry.data.get("profile") != "wahoo_headwind":
+        entities.append(HFCBinarySensor(coord, "armed", "Control armed"))
+    async_add_entities(entities)

@@ -26,4 +26,5 @@ class HFCEntity(CoordinatorEntity):
             "hfc_domain": DOMAIN,
             "hfc_key": self.coordinator.entry.entry_id,
             "hfc_metric": self.metric,
+            "hfc_device_name": self.coordinator.entry.title,
         }

@@ -25,4 +25,6 @@ class HFCButton(HFCEntity, ButtonEntity):
 
 async def async_setup_entry(hass, entry, async_add_entities):
     coord = hass.data[DOMAIN][entry.entry_id]
+    if entry.data.get("profile") == "wahoo_headwind":
+        return
     async_add_entities([HFCButton(coord, key, name) for key, name in ACTIONS.items()])
