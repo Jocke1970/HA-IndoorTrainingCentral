@@ -14,8 +14,11 @@ Current command targets via pycycling: ERG power and simulated grade; status and
 ## Top Sport / Christopeit WP5000
 
 Manufacturer documents Bluetooth/Kinomap and a 16-level magnetic brake. Some WP5000 console hardware revisions differ.
-App compatibility **does not imply FTMS or remote resistance control**.
 
-To investigate: wake machine, disconnect Kinomap, add a HomeFitnessCode entry selecting its BLE advertisement and christopeit_wp5000 profile. Find the GATT discovery sensor, copy the characteristics attribute. A separate notification capture during a rowing workout will be needed before implementing a proprietary decoder.
+**Evidence:** The owner has successfully used this WP5000 with MyWhoosh. MyWhoosh introduced support for FTMS-compatible rowers in v5.8.0 (2026-06-09): https://mywhoosh.com/mywhoosh-5-8-0-more-ways-to-row-more-ways-to-progress/. This raises the probability of FTMS if the WP5000 connected directly as a rower, but a bridge or different machine/console profile has not yet been ruled out. Other older WP5000 owner reports found no FTMS; console revisions likely matter. MyWhoosh connectivity alone does **not** demonstrate remote resistance control.
+
+**First test (read-only):** Wake WP5000, disconnect Kinomap/MyWhoosh, then select it in HA with profile `auto` and machine `rower`. Check whether FTMS service `0x1826` / rower data characteristic `0x2AD1` is present and whether live distance, stroke rate/count and split pace are published. Avoid control commands.
+
+**Fallback:** If FTMS is absent, add the same BLE peripheral with profile `christopeit_wp5000` to expose a read-only GATT inventory. Capture the `GATT discovery` entity's `characteristics` attribute. Decoding private vendor notifications requires a further packet capture during rowing; do not invent commands.
 
 Never transmit guessed write commands; keep proprietary profiles read-only until protocol verification.
