@@ -4,7 +4,9 @@
   const defs = {
     treadmill: {name:"Löpband", metrics:["speed_kmh","distance_km","elapsed_s","heart_rate_bpm","incline_percent","energy_kcal"],targets:["speed","incline"]},
     bike: {name:"Cykeltrainer",metrics:["power_w","cadence_rpm","speed_kmh","heart_rate_bpm","distance_km","elapsed_s","resistance_level"],targets:["power","resistance","incline"]},
-    rower: {name:"Roddmaskin",metrics:["pace_s_per_500m","stroke_rate_spm","distance_km","stroke_count","elapsed_s","heart_rate_bpm","power_w"],targets:["resistance","power"]}
+    rower: {name:"Roddmaskin",metrics:["pace_s_per_500m","stroke_rate_spm","distance_km","stroke_count","elapsed_s","heart_rate_bpm","power_w"],targets:["resistance","power"]},
+    headwind: {name:"Wahoo HEADWIND",metrics:[],targets:[]},
+    auto: {name:"Träningsutrustning",metrics:[],targets:[]}
   };
   const label = {speed_kmh:"Hastighet",distance_km:"Distans",elapsed_s:"Tid",heart_rate_bpm:"Puls",
     incline_percent:"Lutning",energy_kcal:"Kalorier",power_w:"Effekt",cadence_rpm:"Kadens",
@@ -27,17 +29,20 @@
         if(!a.hfc_key||!a.hfc_metric)continue;
         (groups[a.hfc_key]??={})[a.hfc_metric]={...s,id};
       }
-      for(const [key,group] of Object.entries(groups))if(group.headwind_fan)delete groups[key];
       return groups;
     }
     fans(){
       return Object.entries(this.h.states).filter(([id,s])=>id.startsWith("fan.")&&
-        (s.attributes?.hfc_metric==="headwind_fan"||/headwind/i.test(s.attributes?.friendly_name||id)));
+        (s.attributes?.hfc_metric==="headwind_fan"||/headwind/i.test(s.attributes?.friendly_name||id)))
+        .sort(([a,sa],[b,sb])=>Number(sb.attributes?.hfc_metric==="headwind_fan")-
+          Number(sa.attributes?.hfc_metric==="headwind_fan")||a.localeCompare(b));
     }
     fanEntity(){
       const choices=this.fans();
       const selected=choices.find(([id])=>id===this.fanSelected);
-      return selected||choices[0]||null;
+      const g=this.collect()[this.chosen];
+      const own=choices.find(([,s])=>s.attributes?.hfc_key&&s.attributes.hfc_key===g?.connected?.attributes?.hfc_key);
+      return selected||own||choices[0]||null;
     }
     modeEntity(fan){
       if(!fan)return null;
@@ -89,7 +94,7 @@
       "@media(max-width:680px){.root{padding:12px}.head{display:grid;gap:10px}select{width:100%}.stats{grid-template-columns:repeat(2,minmax(0,1fr))}.val{font-size:22px}.controls{grid-template-columns:1fr}.actions button{flex:1}}"
     ].join("");}
     shell(key,type,groups){
-      const d=defs[type]||defs.treadmill;
+      const d=defs[type]||defs.auto;
       const opt=Object.keys(groups).sort().map(id=>'<option value="'+esc(id)+'"'+(id===key?' selected':'')+'>'+esc(groups[id]?.machine_type?.attributes?.hfc_device_name||id)+'</option>').join("");
       const tiles=d.metrics.map(m=>'<div class="tile"><div class="label">'+esc(label[m]||m)+'</div><div class="val" data-metric="'+m+'">–</div><div class="unit">'+esc(units[m]||"")+'</div></div>').join("");
       const targets=d.targets.map(m=>'<label class="target">'+esc(label[m])+'<span class="targetrow"><input type="number" inputmode="decimal" data-target="'+m+'"/><button type="button" data-set="'+m+'">Ställ in</button></span></label>').join("");
@@ -97,7 +102,7 @@
         '<button type="button" data-action="'+a+'" '+(a==='stop'?'class="danger"':'')+'>'+({arm:"Aktivera styrning",start:"Start",pause:"Paus",stop:"Stopp"}[a])+'</button>').join("");
       const fanChoices=this.fans();
       const fanOptions=fanChoices.map(([id,s])=>'<option value="'+esc(id)+'"'+(this.fanSelected===id?' selected':'')+'>'+esc(s.attributes?.friendly_name||id)+'</option>').join("");
-      const fanPanel=type==="bike"?(
+      const fanPanel=(type==="bike"||type==="headwind")?(
         '<section class="panel" data-fan><h3>💨 Wahoo HEADWIND</h3>'+
         (fanChoices.length?
           '<div class="fan-line"><select data-fan-choice aria-label="Välj fläkt">'+fanOptions+'</select><span class="fan-percent" data-fan-percent>–</span><span data-fan-status>Ej ansluten</span></div>'+
@@ -108,19 +113,22 @@
           :'<p class="fan-note">Lägg till Wahoo HEADWIND som enhet i HomeFitnessCode för gemensam visning och styrning.</p>')+
         '</section>'
       ):"";
-      this.shadowRoot.innerHTML='<style>'+this.styleText()+'</style><ha-card><div class="root">'+
-        '<header class="head"><div><div class="kicker">HOMEFITNESSCODE · FTMS</div><h2>'+d.name+'</h2><div class="sub" data-info>Ej ansluten</div></div>'+
-        '<select aria-label="Välj träningsmaskin">'+opt+'</select></header>'+
+      const trainPanel=(type==="headwind"||type==="auto")?"":(
         '<section class="stats">'+tiles+'</section><section class="panel"><h3>Styrning</h3>'+
         '<p class="note">Manuell aktivering krävs. Ingen automatisk start efter återanslutning.</p>'+
         '<div class="actions">'+actions+'</div><div class="controls">'+targets+'</div>'+
-        '<div class="message" aria-live="polite"></div></section>'+fanPanel+
+        '<div class="message" aria-live="polite"></div></section>'
+      );
+      this.shadowRoot.innerHTML='<style>'+this.styleText()+'</style><ha-card><div class="root">'+
+        '<header class="head"><div><div class="kicker">HOMEFITNESSCODE · FTMS</div><h2>'+d.name+'</h2><div class="sub" data-info>Ej ansluten</div></div>'+
+        '<select aria-label="Välj träningsmaskin">'+opt+'</select></header>'+
+        trainPanel+fanPanel+
         '<footer class="foot"><span data-protocol>Protokoll: –</span><span data-arm>Låst</span></footer>'+
         '</div></ha-card>';
       this.shadowRoot.querySelector('select').addEventListener('change',e=>{this.chosen=e.target.value;this.signature="";this.draw();});
       this.shadowRoot.querySelectorAll('[data-action]').forEach(b=>b.addEventListener('click',()=>this.action(b.dataset.action)));
       this.shadowRoot.querySelectorAll('[data-set]').forEach(b=>b.addEventListener('click',()=>this.setTarget(b.dataset.set)));
-      this.shadowRoot.querySelector('[data-fan-choice]')?.addEventListener('change',e=>{this.fanSelected=e.target.value;this.draw();});
+      this.shadowRoot.querySelector('[data-fan-choice]')?.addEventListener('change',e=>{this.fanSelected=e.target.value;this.signature="";this.draw();});
       this.shadowRoot.querySelector('[data-fan-mode]')?.addEventListener('change',e=>this.fanMode(e.target.value));
       this.shadowRoot.querySelector('[data-fan-apply]')?.addEventListener('click',()=>{
         const input=this.shadowRoot.querySelector('[data-fan-target]');
@@ -135,12 +143,18 @@
       const groups=this.collect(),ids=Object.keys(groups).sort();
       if(!ids.length){this.shadowRoot.innerHTML='<ha-card><div style="padding:22px">Inga maskiner registrerade. Konfigurera HomeFitnessCode-integrationen först.</div></ha-card>';this.signature="";return;}
       const key=ids.includes(this.chosen)?this.chosen:ids[0];this.chosen=key;
-      const g=groups[key],type=this.value(g,"machine_type")||"treadmill";
+      const g=groups[key];
+      const rawType=this.value(g,"machine_type");
+      const name=(g.connected?.attributes?.hfc_device_name||g.protocol?.attributes?.hfc_device_name||"").toUpperCase();
+      const type=defs[rawType]?rawType:(g.headwind_fan?"headwind":
+        name.includes("TACX")||name.includes("FLUX")?"bike":
+        name.includes("WP5000")?"rower":"auto");
       if(this.signature!==key+':'+type+':'+ids.join(',')+':'+this.fans().map(([id])=>id).join(','))this.shell(key,type,groups);
       const connected=this.value(g,"connected")==="on",armed=this.value(g,"armed")==="on";
-      this.shadowRoot.querySelector('[data-info]').textContent=(connected?"● Ansluten":"○ Frånkopplad")+" · "+(this.value(g,"session_status")||"okänd status");
+      this.shadowRoot.querySelector('[data-info]').textContent=(connected?"● Ansluten":"○ Frånkopplad")+
+        (type==="headwind"?"":(" · "+(this.value(g,"session_status")||"väntar på anslutning")));
       this.shadowRoot.querySelector('[data-protocol]').textContent="Protokoll: "+(this.value(g,"protocol")||"–");
-      this.shadowRoot.querySelector('[data-arm]').textContent=armed?"Styrning aktiverad":"Styrning låst";
+      this.shadowRoot.querySelector('[data-arm]').textContent=type==="headwind"?"Fläktstyrning separat":(armed?"Styrning aktiverad":"Styrning låst");
       this.shadowRoot.querySelectorAll('[data-metric]').forEach(el=>el.textContent=this.display(g,el.dataset.metric));
       this.shadowRoot.querySelectorAll('[data-action]').forEach(b=>{
         const e=g[b.dataset.action];
@@ -158,11 +172,13 @@
       });
     }
     refreshFan(type){
-      if(type!=="bike")return;
+      if(type!=="bike"&&type!=="headwind")return;
       const item=this.fanEntity(), fan=item?.[1], mode=this.modeEntity(fan);
       const e=this.shadowRoot.querySelector('[data-fan-percent]');
       if(!e)return;
-      const available=!!fan&&!invalid(fan.state), pct=Number(fan?.attributes?.percentage);
+      const available=!!fan&&!invalid(fan.state);
+      const reported=fan?.attributes?.percentage;
+      const pct=(reported===undefined||reported===null)?NaN:Number(reported);
       const value=Number.isFinite(pct)?pct:null;
       e.textContent=value!==null&&available?value+" %":"–";
       const status=this.shadowRoot.querySelector('[data-fan-status]');
@@ -212,7 +228,8 @@
       try{await this.h.callService(domain,service,data);this.message("Kommando kvitterat av Home Assistant – kontrollera maskinens faktiska värde.");}
       catch(err){this.message("Kommandot misslyckades: "+(err?.message||err));}
     }
-    message(v){const e=this.shadowRoot.querySelector(".message");if(e)e.textContent=v;}
+    message(v){const e=this.shadowRoot.querySelector(".message")||
+      this.shadowRoot.querySelector("[data-fan-status]");if(e)e.textContent=v;}
   }
   if(!customElements.get("homefitnesscode-card"))customElements.define("homefitnesscode-card",Card);
   window.customCards=window.customCards||[];
