@@ -10,9 +10,9 @@ Shared backend and responsive Lovelace custom card for treadmill, indoor cycling
 | --- | --- | --- |
 | HomeFitnessCode Q5 Pro / Y5 | FTMS / HomeFitnessCode FTMS profile | App APK contains FTMS, hardware not yet tested |
 | Tacx FLUX S Smart T2900S | Standard FTMS or Tacx FE-C over Bluetooth | FE-C via pycycling, power/cadence/speed and ERG/simulated hill implemented but not hardware-verified |
-| Top Sport / Christopeit WP5000 | FTMS first; read-only GATT discovery fallback | Owner reports successful MyWhoosh connection; protocol and console variant still to be confirmed |
+| Top Sport / Christopeit WP5000 | FTMS first; read-only GATT discovery fallback | Owner confirmed direct Bluetooth pairing to MyWhoosh on phone without bridge; GATT/FTMS UUID not yet captured |
 
-WP5000: A working MyWhoosh connection has been reported on the target machine. MyWhoosh added generic FTMS rowing support in version 5.8.0 (June 2026). This makes FTMS worth trying first, **but does not prove** whether this specific connection used FTMS, a bridge, or another supported profile. Some WP5000 console generations differ. If standard FTMS is absent, choose the read-only `christopeit_wp5000` diagnostic profile to inspect GATT characteristics; it sends **no manufacturer commands**.
+WP5000: The owner has confirmed **direct pairing of this rower to MyWhoosh on an Android phone, without QZ or any bridge**. MyWhoosh added generic FTMS rowing support in version 5.8.0 (June 2026), so FTMS is now our leading hypothesis. **This is still not a captured UUID or confirmed FTMS implementation**; some WP5000 console generations differ. First verify service `0x1826` and characteristic `0x2AD1` read-only. If FTMS is absent, select the read-only `christopeit_wp5000` diagnostic profile; it sends **no manufacturer commands**.
 
 ## Development installation
 
