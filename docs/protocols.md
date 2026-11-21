@@ -15,7 +15,7 @@ Current command targets via pycycling: ERG power and simulated grade; status and
 
 Manufacturer documents Bluetooth/Kinomap and a 16-level magnetic brake. Some WP5000 console hardware revisions differ.
 
-**Evidence:** The owner has successfully used this WP5000 with MyWhoosh. MyWhoosh introduced support for FTMS-compatible rowers in v5.8.0 (2026-06-09): https://mywhoosh.com/mywhoosh-5-8-0-more-ways-to-row-more-ways-to-progress/. This raises the probability of FTMS if the WP5000 connected directly as a rower, but a bridge or different machine/console profile has not yet been ruled out. Other older WP5000 owner reports found no FTMS; console revisions likely matter. MyWhoosh connectivity alone does **not** demonstrate remote resistance control.
+**Observed by owner:** The Top Sport WP5000 connected **directly to MyWhoosh on the phone**, with **no QZ, external adapter or bridge**. MyWhoosh introduced FTMS-compatible rowing support in v5.8.0 (2026-06-09): https://mywhoosh.com/mywhoosh-5-8-0-more-ways-to-row-more-ways-to-progress/. This makes an FTMS rower profile a strong hypothesis for this particular machine, but direct pairing alone does **not** confirm its advertised BLE UUIDs, rower console revision, or the command set. Older WP5000 owners reported no FTMS, so hardware revisions may matter. Do **not** infer remote magnetic resistance control from MyWhoosh compatibility.
 
 **First test (read-only):** Wake WP5000, disconnect Kinomap/MyWhoosh, then select it in HA with profile `auto` and machine `rower`. Check whether FTMS service `0x1826` / rower data characteristic `0x2AD1` is present and whether live distance, stroke rate/count and split pace are published. Avoid control commands.
 
