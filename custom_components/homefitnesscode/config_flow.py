@@ -36,7 +36,7 @@ class HomeFitnessCodeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         devices = {
             dev.address: f"{dev.name or 'FTMS'} ({dev.address})"
             for dev in bluetooth.async_discovered_service_info(self.hass, connectable=True)
-            if {SERVICE_FTMS, TACX_FEC_SERVICE}.intersection(uuid.lower() for uuid in dev.service_uuids)
+            if dev.address
         }
         if not devices:
             return self.async_show_form(step_id="user", errors={"base": "no_devices"})

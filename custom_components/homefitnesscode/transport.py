@@ -69,12 +69,14 @@ class Transport:
             return
         code = payload[0]
         if code == 0x01:
+            self.on_data({"session_status": "reset"})
+        elif code == 0x02:
             value = "paused" if len(payload) > 1 and payload[1] == 0x02 else "stopped"
             self.on_data({"session_status": value})
-        elif code == 0x02:
+        elif code == 0x03:
             self.armed = False
             self.on_data({"session_status": "safety_stop"})
-        elif code == 0x03:
+        elif code == 0x04:
             self.on_data({"session_status": "running"})
 
     def _ack(self, _char: Any, payload: bytearray) -> None:
@@ -113,6 +115,21 @@ class Transport:
                     self.armed = False
                     self.client = client
                     self.on_data({"protocol": "tacx_fec", "machine_type": "bike"})
+                    return
+                if not available and self.profile_name == "christopeit_wp5000":
+                    # Read-only GATT inventory. No speculative vendor writes.
+                    self.machine_type = "rower"
+                    services_found = []
+                    for service in services:
+                        for char in service.characteristics:
+                            services_found.append(f"{service.uuid}/{char.uuid}")
+                    self.client = client
+                    self.has_control = False
+                    self.armed = False
+                    self.on_data({"protocol": "christopeit_wp5000_diagnostic",
+                                  "machine_type": "rower",
+                                  "gatt_inventory": services_found,
+                                  "session_status": "diagnostic"})
                     return
                 if not available:
                     raise ConnectionError("No supported FTMS or Tacx FE-C data characteristics")

@@ -7,6 +7,7 @@ from .entity import HFCEntity
 # metric: label, unit, machine types
 METRICS = {
     "machine_type": ("Machine type", None, None),
+    "gatt_inventory": ("GATT discovery", None, None),
     "protocol": ("Protocol", None, None),
     "session_status": ("Workout status", None, None),
     "speed_kmh": ("Speed", "km/h", ("treadmill", "bike")),
@@ -46,8 +47,15 @@ class HFCSensor(HFCEntity, SensorEntity):
                 and self.metric in self.coordinator.data)
 
     @property
+    def extra_state_attributes(self):
+        attributes = super().extra_state_attributes
+        if self.metric == "gatt_inventory":
+            attributes["characteristics"] = self.coordinator.data.get("gatt_inventory", [])
+        return attributes
+
+    @property
     def native_value(self):
-        return self.coordinator.data.get(self.metric)
+        return ("Ready" if self.coordinator.data.get(self.metric) else "None") if self.metric == "gatt_inventory" else self.coordinator.data.get(self.metric)
 
 
 async def async_setup_entry(hass, entry, async_add_entities):
