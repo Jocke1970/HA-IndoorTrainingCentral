@@ -52,6 +52,19 @@
         s.attributes?.hfc_key===key&&s.attributes?.hfc_metric==="headwind_mode_select")||null;
     }
     value(group,key){const s=group[key]?.state;return invalid(s)?null:s;}
+    connectionStatus(group){
+      const connected=this.value(group,"connected");
+      if(connected==="on"){
+        const status=this.value(group,"session_status");
+        const descriptions={ready:"Redo",running:"Pass pågår",paused:"Pausad",
+          stopped:"Stoppad",safety_stop:"Säkerhetsstopp",diagnostic:"Diagnostik",
+          disconnected:"",unknown:"",reset:"Återställd"};
+        const detail=status&&status in descriptions?descriptions[status]:(status||"");
+        return {kind:"connected",label:"Ansluten",detail};
+      }
+      if(connected==="off")return {kind:"disconnected",label:"Frånkopplad",detail:""};
+      return {kind:"unknown",label:"Status okänd",detail:""};
+    }
     display(group,key){
       const raw=this.value(group,key);
       if(raw===null)return "–";
@@ -71,6 +84,12 @@
       ".kicker{font-weight:750;letter-spacing:.06em;font-size:11px;color:var(--secondary-text-color)}",
       "h2{margin:3px 0;font-size:23px}h3{margin:0 0 8px;font-size:16px}",
       ".sub,.foot{font-size:12px;color:var(--secondary-text-color)}",
+      ".connection-status{display:inline-flex;align-items:center;gap:7px;flex-wrap:wrap}",
+      ".connection-dot{width:9px;height:9px;display:inline-block;flex:0 0 9px;border-radius:50%;background:var(--secondary-text-color);opacity:.8}",
+      ".connection-dot.is-connected{background:var(--success-color,#2e9d58);opacity:1;box-shadow:0 0 0 2px color-mix(in srgb,var(--success-color,#2e9d58) 18%,transparent)}",
+      ".connection-dot.is-disconnected{background:var(--secondary-text-color);opacity:.6}",
+      ".connection-dot.is-unknown{background:var(--warning-color,#e7a12a);opacity:1}",
+      ".connection-detail:not(:empty)::before{content:'·';margin-right:7px;color:var(--secondary-text-color)}",
       "select,input{font:inherit;color:var(--primary-text-color);background:var(--card-background-color);border:1px solid var(--divider-color);border-radius:9px;padding:9px;box-sizing:border-box;min-width:0}",
       ".stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,145px),1fr));gap:9px}",
       ".tile{padding:12px;border-radius:12px;background:var(--secondary-background-color)}",
@@ -105,7 +124,7 @@
       const fanPanel=(type==="bike"||type==="headwind")?(
         '<section class="panel" data-fan><h3>💨 Wahoo HEADWIND</h3>'+
         (fanChoices.length?
-          '<div class="fan-line"><select data-fan-choice aria-label="Välj fläkt">'+fanOptions+'</select><span class="fan-percent" data-fan-percent>–</span><span data-fan-status>Ej ansluten</span></div>'+
+          '<div class="fan-line"><select data-fan-choice aria-label="Välj fläkt">'+fanOptions+'</select><span class="fan-percent" data-fan-percent>–</span><span class="connection-status"><span class="connection-dot is-unknown" data-fan-dot aria-hidden="true"></span><span data-fan-status>Okänd</span></span></div>'+
           '<div class="controls"><label class="target">Driftläge<select data-fan-mode><option value="off">Av</option><option value="manual">Manuell</option><option value="heart_rate">Puls (sensor i fläkten)</option><option value="speed">Hastighet (sensor i fläkten)</option></select></label>'+
           '<label class="target">Fläkthastighet (%)<span class="targetrow"><input data-fan-target type="number" min="0" max="100" step="5" inputmode="numeric" placeholder="0–100"/><button type="button" data-fan-apply>Ställ in</button></span></label></div>'+
           '<div class="actions"><button data-fan-preset="0" type="button">Av</button><button data-fan-preset="25" type="button">25 %</button><button data-fan-preset="50" type="button">50 %</button><button data-fan-preset="75" type="button">75 %</button><button data-fan-preset="100" type="button">100 %</button></div>'+
@@ -120,7 +139,7 @@
         '<div class="message" aria-live="polite"></div></section>'
       );
       this.shadowRoot.innerHTML='<style>'+this.styleText()+'</style><ha-card><div class="root">'+
-        '<header class="head"><div><div class="kicker">HA-INDOORTRAININGCENTRAL</div><h2>'+d.name+'</h2><div class="sub" data-info>Ej ansluten</div></div>'+
+        '<header class="head"><div><div class="kicker">HA-INDOORTRAININGCENTRAL</div><h2>'+d.name+'</h2><div class="sub connection-status" data-info role="status" aria-live="polite"><span class="connection-dot is-unknown" data-connection-dot aria-hidden="true"></span><span data-connection-label>Status okänd</span><span class="connection-detail" data-connection-detail></span></div></div>'+
         '<select aria-label="Välj träningsmaskin">'+opt+'</select></header>'+
         trainPanel+fanPanel+
         '<footer class="foot"><span data-protocol>Protokoll: –</span><span data-arm>Låst</span></footer>'+
@@ -150,12 +169,13 @@
         name.includes("TACX")||name.includes("FLUX")?"bike":
         name.includes("WP5000")?"rower":"auto");
       if(this.signature!==key+':'+type+':'+ids.join(',')+':'+Object.keys(g).sort().join(',')+':'+this.fans().map(([id])=>id).join(','))this.shell(key,type,groups);
-      const connected=this.value(g,"connected")==="on",armed=this.value(g,"armed")==="on";
-      const rawStatus=this.value(g,"session_status");
-      const sessionStatus=connected?(rawStatus==="disconnected"||!rawStatus?"redo":rawStatus):
-        "väntar på anslutning";
-      this.shadowRoot.querySelector('[data-info]').textContent=(connected?"● Ansluten":"○ Frånkopplad")+
-        (type==="headwind"?"":(" · "+sessionStatus));
+      const connection=this.connectionStatus(g);
+      const connected=connection.kind==="connected",armed=this.value(g,"armed")==="on";
+      this.shadowRoot.querySelector('[data-connection-label]').textContent=connection.label;
+      this.shadowRoot.querySelector('[data-connection-detail]').textContent=
+        type==="headwind"?"":connection.detail;
+      this.shadowRoot.querySelector('[data-connection-dot]').className=
+        "connection-dot is-"+connection.kind;
       this.shadowRoot.querySelector('[data-protocol]').textContent="Protokoll: "+(this.value(g,"protocol")||"–");
       this.shadowRoot.querySelector('[data-arm]').textContent=type==="headwind"?"Fläktstyrning separat":(armed?"Styrning aktiverad":"Styrning låst");
       this.shadowRoot.querySelectorAll('[data-metric]').forEach(el=>el.textContent=this.display(g,el.dataset.metric));
@@ -185,7 +205,10 @@
       const value=Number.isFinite(pct)?pct:null;
       e.textContent=value!==null&&available?value+" %":"–";
       const status=this.shadowRoot.querySelector('[data-fan-status]');
-      status.textContent=available?(fan.state==="on"?"På":"Av"):"Frånkopplad";
+      const fanConnected=available&&this.value(this.collect()[fan?.attributes?.hfc_key]||{},"connected")==="on";
+      status.textContent=fanConnected?"Ansluten":(available?"Status okänd":"Frånkopplad");
+      this.shadowRoot.querySelector('[data-fan-dot]').className=
+        "connection-dot is-"+(fanConnected?"connected":available?"unknown":"disconnected");
       const fwNode=this.shadowRoot.querySelector('[data-fan-fw]');
       if(fwNode){
         const key=fan.attributes?.hfc_key;
