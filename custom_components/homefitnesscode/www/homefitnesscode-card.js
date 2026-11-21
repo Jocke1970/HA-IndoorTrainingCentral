@@ -104,7 +104,7 @@
           '<div class="controls"><label class="target">Driftläge<select data-fan-mode><option value="off">Av</option><option value="manual">Manuell</option><option value="heart_rate">Puls (sensor i fläkten)</option><option value="speed">Hastighet (sensor i fläkten)</option></select></label>'+
           '<label class="target">Fläkthastighet (%)<span class="targetrow"><input data-fan-target type="number" min="0" max="100" step="5" inputmode="numeric" placeholder="0–100"/><button type="button" data-fan-apply>Ställ in</button></span></label></div>'+
           '<div class="actions"><button data-fan-preset="0" type="button">Av</button><button data-fan-preset="25" type="button">25 %</button><button data-fan-preset="50" type="button">50 %</button><button data-fan-preset="75" type="button">75 %</button><button data-fan-preset="100" type="button">100 %</button></div>'+
-          '<p class="fan-note">Puls-/hastighetsläge kräver att sensorn parats till HEADWIND. Effektstyrning/adaptiv kylning konfigureras tills vidare i Wahoo-appen.</p>'
+          '<p class="fan-note">Pulsstyrning via ditt parkopplade pulsband är huvudläge. HA ändrar inte fläktläget automatiskt. Effektstyrning/adaptiv kylning kräver nyare firmware och konfigureras i Wahoo-appen.</p><p class="fan-note" data-fan-fw>Firmware: okänd</p>'
           :'<p class="fan-note">Lägg till Wahoo HEADWIND som enhet i HomeFitnessCode för gemensam visning och styrning.</p>')+
         '</section>'
       ):"";
@@ -167,6 +167,12 @@
       e.textContent=value!==null&&available?value+" %":"–";
       const status=this.shadowRoot.querySelector('[data-fan-status]');
       status.textContent=available?(fan.state==="on"?"På":"Av"):"Frånkopplad";
+      const fwNode=this.shadowRoot.querySelector('[data-fan-fw]');
+      if(fwNode){
+        const key=fan.attributes?.hfc_key;
+        const fw=Object.values(this.h.states).find(s=>s.attributes?.hfc_key===key&&s.attributes?.hfc_metric==="firmware_version");
+        fwNode.textContent="Firmware: "+(fw&&!invalid(fw.state)?fw.state:"ej avläst");
+      }
       const sel=this.shadowRoot.querySelector('[data-fan-mode]');
       sel.disabled=!available||!mode||invalid(mode[1].state);
       if(mode&&!invalid(mode[1].state))sel.value=mode[1].state;

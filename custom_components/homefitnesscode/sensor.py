@@ -36,7 +36,7 @@ class HFCSensor(HFCEntity, SensorEntity):
         super().__init__(coordinator, key, label)
         self._attr_native_unit_of_measurement = unit
         self.allowed = allowed
-        if key not in ("machine_type", "protocol", "session_status"):
+        if key not in ("machine_type", "protocol", "session_status", "gatt_inventory", "headwind_mode", "firmware_version"):
             self._attr_state_class = SensorStateClass.MEASUREMENT
 
     @property
@@ -64,6 +64,7 @@ async def async_setup_entry(hass, entry, async_add_entities):
         async_add_entities([
             HFCSensor(coord, "headwind_mode", "Fan mode", None, None),
             HFCSensor(coord, "fan_percent", "Fan speed", "%", None),
+            HFCSensor(coord, "firmware_version", "HEADWIND firmware", None, None),
         ])
         return
     async_add_entities([HFCSensor(coord, k, *values) for k, values in METRICS.items()])

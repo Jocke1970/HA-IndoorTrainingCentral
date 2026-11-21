@@ -18,6 +18,8 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .headwind_protocol import CONTROL, MODES, decode_notification, mode_command, percent_command
 
+DEVICE_INFO_FW = "00002a26-0000-1000-8000-00805f9b34fb"
+
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -35,7 +37,8 @@ class HeadwindState(DataUpdateCoordinator[dict[str, Any]]):
         self._command_lock = asyncio.Lock()
         self.data = {"connected": False, "machine_type": "headwind",
                      "protocol": "wahoo_headwind_ble",
-                     "headwind_mode": "unknown", "fan_percent": None}
+                     "headwind_mode": "unknown", "fan_percent": None,
+                     "firmware_version": None}
 
     @property
     def connected(self) -> bool:
@@ -79,9 +82,19 @@ class HeadwindState(DataUpdateCoordinator[dict[str, Any]]):
             try:
                 if client.services.get_characteristic(CONTROL) is None:
                     raise ConnectionError("Wahoo HEADWIND BLE characteristic absent")
+                firmware = None
+                if client.services.get_characteristic(DEVICE_INFO_FW):
+                    try:
+                        raw = await client.read_gatt_char(DEVICE_INFO_FW)
+                        firmware = bytes(raw).decode("utf-8", errors="replace").strip("\x00 ")
+                    except Exception as err:
+                        _LOGGER.debug("HEADWIND firmware not readable: %s", err)
                 await client.start_notify(CONTROL, self._notify)
                 self._client = client
-                self.async_set_updated_data({**self.data, "connected": True})
+                self.async_set_updated_data({
+                    **self.data, "connected": True,
+                    "firmware_version": firmware or "unknown",
+                })
             except Exception:
                 await client.disconnect()
                 raise

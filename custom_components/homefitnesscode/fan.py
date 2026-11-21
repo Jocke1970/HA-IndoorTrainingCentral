@@ -32,7 +32,9 @@ class HFCHeadwindFan(HFCEntity, FanEntity):
         if percentage is not None:
             await self.coordinator.set_percentage(int(percentage))
         else:
-            await self.coordinator.set_percentage(25)
+            # Keep the owner’s existing HR sensor workflow. A normal Fan Turn On
+            # must never silently switch into fixed manual speed.
+            await self.coordinator.set_mode("heart_rate")
 
     async def async_turn_off(self, **kwargs):
         await self.coordinator.set_mode("off")
