@@ -1,7 +1,7 @@
 {
   "domain": "homefitnesscode",
   "name": "HA-IndoorTrainingCentral",
-  "version": "2026.11.0b4",
+  "version": "2026.11.0b5",
   "documentation": "https://github.com/Jocke1970/HA-IndoorTrainingCentral",
   "codeowners": [
     "@Jocke1970"

@@ -86,3 +86,14 @@ Live Bluetooth status uses a colored dot **and** a text label:
 - Amber **Status okänd**: unavailable, unknown, or missing.
 
 Workout details such as **Redo** are shown separately. The Wahoo HEADWIND section also distinguishes a physically switched-off fan from a disconnected Bluetooth connection. The barbell in the optional project artwork represents a future category, **not** a current strength-training device connection.
+
+## Grafik (beta b5)
+
+Vi behåller den detaljerade original-loggan med hanteln för större ytor. I Home Assistants integrationslista används en förenklad, tydlig **ITC-ikon** i mörkblått/turkos.
+
+- Redigerbar ikonkälla: `assets/branding/itc-icon.svg`
+- Native Home Assistant-branding: `custom_components/homefitnesscode/brand/icon.png` (256×256) och `icon@2x.png` (512×512)
+- GitHub Actions genererar PNG-filerna från SVG på `dev` och committar dem. De ingår sedan i Marketplace-beta.
+- HA visar bilden automatiskt från integrationens `brand/`-katalog (HA 2026.3+). Inga entitets-ID:n eller domännamn ändras.
+
+Styrketräningsikonen i huvudloggan är visuell profilering och innebär inte att någon styrketräningsutrustning är uppkopplad.

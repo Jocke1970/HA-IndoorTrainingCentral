@@ -1,14 +1,11 @@
-# HA-IndoorTrainingCentral 2026.11.0b4 (beta)
+# HA-IndoorTrainingCentral 2026.11.0b5 (beta)
 
-## Connection indicators
+## Native Home Assistant icon
 
-- Green status dot + **Ansluten** when the selected device's Home Assistant Bluetooth connection sensor is on.
-- Grey status dot + **Frånkopplad** when it is off.
-- Amber status dot + **Status okänd** when the sensor value is unavailable or unknown, avoiding false green positives.
-- Show localized workout detail such as **Redo** beside the connected status.
-- Apply the same connection indicator to the Wahoo HEADWIND accessory panel. Its **Av** fan state is not confused with Bluetooth disconnection.
-- Include JavaScript smoke tests for the connection state mappings.
+- Add an optimized **ITC** emblem for compact UI surfaces, matching the blue and turquoise color palette of the existing four-sport main logo.
+- Ship `custom_components/homefitnesscode/brand/icon.png` (256 px) and `brand/icon@2x.png` (512 px), locally served by Home Assistant 2026.3+.
+- Keep editable `assets/branding/itc-icon.svg` in the repository.
+- No behavioral changes to Bluetooth, training targets, HEADWIND or FIT exports.
+- Preserve legacy `homefitnesscode` integration domain and existing entities.
 
-The internal `homefitnesscode` domain and existing dashboards remain compatible. No BLE command semantics, FIT export, or recording behavior is changed.
-
-Strength-training artwork in the project icon is visual branding only; resistance-training device support is **not implemented** at this stage.
+Keep b5 in beta until the icon is confirmed visible in a real HA dashboard/integration view.
