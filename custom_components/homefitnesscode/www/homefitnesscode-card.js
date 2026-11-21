@@ -16,7 +16,7 @@
   const esc=s=>String(s??"").replace(/[&<>"']/g,x=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[x]));
   const invalid=s=>s==null||["unknown","unavailable","none"].includes(s);
   class Card extends HTMLElement {
-    setConfig(config){this.config=config||{};this.chosen=this.config.entry_id||null;this.signature="";this.draw();}
+    setConfig(config){this.config=config||{};this.chosen=this.config.entry_id||null;this.fanSelected=this.config.headwind_entity||null;this.signature="";this.draw();}
     set hass(h){this.h=h;this.draw();}
     getCardSize(){return 6;}
     static getStubConfig(){return {};}
@@ -27,7 +27,24 @@
         if(!a.hfc_key||!a.hfc_metric)continue;
         (groups[a.hfc_key]??={})[a.hfc_metric]={...s,id};
       }
+      for(const [key,group] of Object.entries(groups))if(group.headwind_fan)delete groups[key];
       return groups;
+    }
+    fans(){
+      return Object.entries(this.h.states).filter(([id,s])=>id.startsWith("fan.")&&
+        (s.attributes?.hfc_metric==="headwind_fan"||/headwind/i.test(s.attributes?.friendly_name||id)));
+    }
+    fanEntity(){
+      const choices=this.fans();
+      const selected=choices.find(([id])=>id===this.fanSelected);
+      return selected||choices[0]||null;
+    }
+    modeEntity(fan){
+      if(!fan)return null;
+      const key=fan.attributes?.hfc_key;
+      if(!key)return null;
+      return Object.entries(this.h.states).find(([id,s])=>id.startsWith("select.")&&
+        s.attributes?.hfc_key===key&&s.attributes?.hfc_metric==="headwind_mode_select")||null;
     }
     value(group,key){const s=group[key]?.state;return invalid(s)?null:s;}
     display(group,key){
@@ -65,28 +82,52 @@
       ".targetrow input{flex:1;width:80px}",
       ".note,.message{margin:8px 0;font-size:12px;color:var(--secondary-text-color)}",
       ".foot{display:flex;justify-content:space-between;gap:12px}",
+      ".fan-line{display:flex;align-items:center;gap:12px;flex-wrap:wrap}",
+      ".fan-percent{font-size:23px;font-weight:750}",
+      ".fan-line select{max-width:210px}",
+      ".fan-note{font-size:12px;color:var(--secondary-text-color);margin:4px 0}",
       "@media(max-width:680px){.root{padding:12px}.head{display:grid;gap:10px}select{width:100%}.stats{grid-template-columns:repeat(2,minmax(0,1fr))}.val{font-size:22px}.controls{grid-template-columns:1fr}.actions button{flex:1}}"
     ].join("");}
     shell(key,type,groups){
       const d=defs[type]||defs.treadmill;
-      const opt=Object.keys(groups).sort().map(id=>'<option value="'+esc(id)+'"'+(id===key?' selected':'')+'>'+esc(id)+'</option>').join("");
+      const opt=Object.keys(groups).sort().map(id=>'<option value="'+esc(id)+'"'+(id===key?' selected':'')+'>'+esc(groups[id]?.machine_type?.attributes?.hfc_device_name||id)+'</option>').join("");
       const tiles=d.metrics.map(m=>'<div class="tile"><div class="label">'+esc(label[m]||m)+'</div><div class="val" data-metric="'+m+'">–</div><div class="unit">'+esc(units[m]||"")+'</div></div>').join("");
       const targets=d.targets.map(m=>'<label class="target">'+esc(label[m])+'<span class="targetrow"><input type="number" inputmode="decimal" data-target="'+m+'"/><button type="button" data-set="'+m+'">Ställ in</button></span></label>').join("");
       const actions=['arm',...(type==='treadmill'?['start','pause','stop']:[])].map(a=>
         '<button type="button" data-action="'+a+'" '+(a==='stop'?'class="danger"':'')+'>'+({arm:"Aktivera styrning",start:"Start",pause:"Paus",stop:"Stopp"}[a])+'</button>').join("");
+      const fanChoices=this.fans();
+      const fanOptions=fanChoices.map(([id,s])=>'<option value="'+esc(id)+'"'+(this.fanSelected===id?' selected':'')+'>'+esc(s.attributes?.friendly_name||id)+'</option>').join("");
+      const fanPanel=type==="bike"?(
+        '<section class="panel" data-fan><h3>💨 Wahoo HEADWIND</h3>'+
+        (fanChoices.length?
+          '<div class="fan-line"><select data-fan-choice aria-label="Välj fläkt">'+fanOptions+'</select><span class="fan-percent" data-fan-percent>–</span><span data-fan-status>Ej ansluten</span></div>'+
+          '<div class="controls"><label class="target">Driftläge<select data-fan-mode><option value="off">Av</option><option value="manual">Manuell</option><option value="heart_rate">Puls (sensor i fläkten)</option><option value="speed">Hastighet (sensor i fläkten)</option></select></label>'+
+          '<label class="target">Fläkthastighet (%)<span class="targetrow"><input data-fan-target type="number" min="0" max="100" step="5" inputmode="numeric" placeholder="0–100"/><button type="button" data-fan-apply>Ställ in</button></span></label></div>'+
+          '<div class="actions"><button data-fan-preset="0" type="button">Av</button><button data-fan-preset="25" type="button">25 %</button><button data-fan-preset="50" type="button">50 %</button><button data-fan-preset="75" type="button">75 %</button><button data-fan-preset="100" type="button">100 %</button></div>'+
+          '<p class="fan-note">Puls-/hastighetsläge kräver att sensorn parats till HEADWIND. Effektstyrning/adaptiv kylning konfigureras tills vidare i Wahoo-appen.</p>'
+          :'<p class="fan-note">Lägg till Wahoo HEADWIND som enhet i HomeFitnessCode för gemensam visning och styrning.</p>')+
+        '</section>'
+      ):"";
       this.shadowRoot.innerHTML='<style>'+this.styleText()+'</style><ha-card><div class="root">'+
         '<header class="head"><div><div class="kicker">HOMEFITNESSCODE · FTMS</div><h2>'+d.name+'</h2><div class="sub" data-info>Ej ansluten</div></div>'+
         '<select aria-label="Välj träningsmaskin">'+opt+'</select></header>'+
         '<section class="stats">'+tiles+'</section><section class="panel"><h3>Styrning</h3>'+
         '<p class="note">Manuell aktivering krävs. Ingen automatisk start efter återanslutning.</p>'+
         '<div class="actions">'+actions+'</div><div class="controls">'+targets+'</div>'+
-        '<div class="message" aria-live="polite"></div></section>'+
+        '<div class="message" aria-live="polite"></div></section>'+fanPanel+
         '<footer class="foot"><span data-protocol>Protokoll: –</span><span data-arm>Låst</span></footer>'+
         '</div></ha-card>';
       this.shadowRoot.querySelector('select').addEventListener('change',e=>{this.chosen=e.target.value;this.signature="";this.draw();});
       this.shadowRoot.querySelectorAll('[data-action]').forEach(b=>b.addEventListener('click',()=>this.action(b.dataset.action)));
       this.shadowRoot.querySelectorAll('[data-set]').forEach(b=>b.addEventListener('click',()=>this.setTarget(b.dataset.set)));
-      this.signature=key+':'+type+':'+Object.keys(groups).sort().join(',');
+      this.shadowRoot.querySelector('[data-fan-choice]')?.addEventListener('change',e=>{this.fanSelected=e.target.value;this.draw();});
+      this.shadowRoot.querySelector('[data-fan-mode]')?.addEventListener('change',e=>this.fanMode(e.target.value));
+      this.shadowRoot.querySelector('[data-fan-apply]')?.addEventListener('click',()=>{
+        const input=this.shadowRoot.querySelector('[data-fan-target]');
+        if(input.value.trim()!==""&&input.checkValidity())this.fanPercent(Number(input.value));
+      });
+      this.shadowRoot.querySelectorAll('[data-fan-preset]').forEach(b=>b.addEventListener('click',()=>this.fanPercent(Number(b.dataset.fanPreset))));
+      this.signature=key+':'+type+':'+Object.keys(groups).sort().join(',')+':'+this.fans().map(([id])=>id).join(',');
     }
     draw(){
       if(!this.h)return;
@@ -95,7 +136,7 @@
       if(!ids.length){this.shadowRoot.innerHTML='<ha-card><div style="padding:22px">Inga maskiner registrerade. Konfigurera HomeFitnessCode-integrationen först.</div></ha-card>';this.signature="";return;}
       const key=ids.includes(this.chosen)?this.chosen:ids[0];this.chosen=key;
       const g=groups[key],type=this.value(g,"machine_type")||"treadmill";
-      if(this.signature!==key+':'+type+':'+ids.join(','))this.shell(key,type,groups);
+      if(this.signature!==key+':'+type+':'+ids.join(',')+':'+this.fans().map(([id])=>id).join(','))this.shell(key,type,groups);
       const connected=this.value(g,"connected")==="on",armed=this.value(g,"armed")==="on";
       this.shadowRoot.querySelector('[data-info]').textContent=(connected?"● Ansluten":"○ Frånkopplad")+" · "+(this.value(g,"session_status")||"okänd status");
       this.shadowRoot.querySelector('[data-protocol]').textContent="Protokoll: "+(this.value(g,"protocol")||"–");
@@ -105,6 +146,7 @@
         const e=g[b.dataset.action];
         b.disabled=!connected||!e||e.state==="unavailable";
       });
+      this.refreshFan(type);
       this.shadowRoot.querySelectorAll('[data-target]').forEach(input=>{
         const e=g["target_"+input.dataset.target];
         input.disabled=!connected||!armed||!e||e.state==="unavailable";
@@ -114,6 +156,36 @@
         }
         this.shadowRoot.querySelector('[data-set="'+input.dataset.target+'"]').disabled=input.disabled;
       });
+    }
+    refreshFan(type){
+      if(type!=="bike")return;
+      const item=this.fanEntity(), fan=item?.[1], mode=this.modeEntity(fan);
+      const e=this.shadowRoot.querySelector('[data-fan-percent]');
+      if(!e)return;
+      const available=!!fan&&!invalid(fan.state), pct=Number(fan?.attributes?.percentage);
+      const value=Number.isFinite(pct)?pct:null;
+      e.textContent=value!==null&&available?value+" %":"–";
+      const status=this.shadowRoot.querySelector('[data-fan-status]');
+      status.textContent=available?(fan.state==="on"?"På":"Av"):"Frånkopplad";
+      const sel=this.shadowRoot.querySelector('[data-fan-mode]');
+      sel.disabled=!available||!mode||invalid(mode[1].state);
+      if(mode&&!invalid(mode[1].state))sel.value=mode[1].state;
+      const speed=this.shadowRoot.querySelector('[data-fan-target]');
+      speed.disabled=!available;
+      speed.placeholder=value!==null&&available?String(value):"0–100";
+      this.shadowRoot.querySelector('[data-fan-apply]').disabled=!available;
+      this.shadowRoot.querySelectorAll('[data-fan-preset]').forEach(btn=>btn.disabled=!available);
+    }
+    async fanMode(mode){
+      const item=this.fanEntity(), selector=this.modeEntity(item?.[1]);
+      if(!selector||invalid(selector[1].state))return;
+      await this.call("select","select_option",{entity_id:selector[0],option:mode});
+    }
+    async fanPercent(percent){
+      const item=this.fanEntity(), fan=item?.[1];
+      if(!item||invalid(fan.state)||!Number.isInteger(percent)||percent<0||percent>100)return;
+      if(percent===0)await this.call("fan","turn_off",{entity_id:item[0]});
+      else await this.call("fan","set_percentage",{entity_id:item[0],percentage:percent});
     }
     async action(name){
       const g=this.collect()[this.chosen],entry=g?.[name];
