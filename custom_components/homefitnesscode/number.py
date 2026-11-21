@@ -54,8 +54,11 @@ async def async_setup_entry(hass, entry, async_add_entities):
 
     def add_available_targets() -> None:
         profile = entry.data.get("profile", "auto")
-        if profile == "auto" and getattr(coord.transport, "tacx", None) is not None:
-            profile = "tacx_fec"
+        if profile == "auto":
+            if getattr(coord.transport, "tacx", None) is not None:
+                profile = "tacx_fec"
+            elif coord.transport.connected and coord.data.get("protocol") == "ftms":
+                profile = "ftms"
         targets = targets_for(coord.data.get("machine_type", "auto"), profile)
         new = [key for key in targets if key not in added]
         if new:

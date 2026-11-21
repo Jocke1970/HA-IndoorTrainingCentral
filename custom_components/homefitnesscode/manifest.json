@@ -1,7 +1,7 @@
 {
   "domain": "homefitnesscode",
   "name": "HomeFitnessCode / FTMS",
-  "version": "2026.11.0b1",
+  "version": "2026.11.0b2",
   "documentation": "https://github.com/Jocke1970/HomeFitnessCode",
   "codeowners": [
     "@Jocke1970"

@@ -53,3 +53,9 @@ def test_wp5000_diagnostics_do_not_allow_control():
     assert "gatt_inventory" in allowed
     assert "armed" not in allowed
     assert not any(key.startswith("target_") for key in allowed)
+
+def test_auto_bike_only_common_controls_until_identified():
+    available = catalog.registered_metrics("bike", "auto")
+    assert "target_power" in available
+    assert "target_resistance" not in available
+    assert "target_incline" not in available

@@ -29,7 +29,7 @@ This beta is distributed as a GitHub **pre-release**, not from the development b
 1. In Home Assistant go to **Settings → Marketplace → Add from link**.
 2. Add `https://github.com/Jocke1970/HomeFitnessCode` as an **Integration**.
 3. Open HomeFitnessCode in Marketplace and enable **Pre-release**.
-4. Install the release labelled `2026.11.0b1` (not the default `main` branch).
+4. Install the newest `2026.11.0bN` pre-release (currently `2026.11.0b2`), not the `main` branch.
 5. Open **Settings → Devices & services** and configure the HomeFitnessCode / FTMS integration.
 6. Register `/homefitnesscode/homefitnesscode-card.js` as a JavaScript module in dashboard resources, then add the card:
 
@@ -54,3 +54,12 @@ The card discovers any installed HomeFitnessCode entity group and adapts to scre
 dev → beta → main
 
 See docs/protocols.md for protocol details and the WP5000 discovery checklist.
+
+## Beta b2: machine-specific entities and HEADWIND
+
+- Each equipment entry only registers applicable sensors and controls. Unknown/disconnected devices retain basic status until classified. Additional entities appear on successful BLE discovery.
+- Legacy HEADWIND entries created by b1 with the `auto` profile are migrated **in place** by BLE device name; no re-pairing and no new config entry required.
+- Irrelevant entities from b1 are pruned from the integration's **entity registry** after the machine type is identified. Relevant entity IDs are retained.
+- Bike dashboard shows the linked HEADWIND fan, mode selector (Off / Heart rate / Speed / Manual), percent presets, and firmware version where readable. The fan also has a standalone selectable view.
+- Pulsband/HEADWIND native pairing is preserved. No writes at startup or reconnect; manual fan percentage deliberately switches to Manual.
+- This is a preliminary backend + UI code fix. Automated protocol tests and JS syntax validation are necessary, but not a substitute for real hardware confirmation.

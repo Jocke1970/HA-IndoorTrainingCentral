@@ -42,8 +42,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if kind not in ("headwind", "bike", "rower", "treadmill"):
             return  # Do not erase data for an unclassified offline BLE device.
         profile = entry.data.get("profile", "auto")
-        if profile == "auto" and getattr(getattr(state, "transport", None), "tacx", None):
-            profile = "tacx_fec"
+        if profile == "auto":
+            transport = getattr(state, "transport", None)
+            if getattr(transport, "tacx", None) is not None:
+                profile = "tacx_fec"
+            elif transport is not None and transport.connected and state.data.get("protocol") == "ftms":
+                profile = "ftms"
         desired = registered_metrics(kind, profile)
         prefix = f"{entry.unique_id or entry.entry_id}_"
         registry = er.async_get(hass)

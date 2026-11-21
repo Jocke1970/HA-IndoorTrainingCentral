@@ -1,13 +1,12 @@
-# HomeFitnessCode 2026.11.0b1 (beta)
+# HomeFitnessCode 2026.11.0b2 (beta)
 
-First experimental Home Assistant Marketplace beta. **No physical equipment has been verified yet.**
+## Entity cleanup and Wahoo HEADWIND
 
-- Shared Bluetooth FTMS backend for treadmills, indoor cycles and rowing machines.
-- HomeFitnessCode profile based on static Android APK analysis (Y5/Q5 Pro actual hardware not yet tested).
-- Tacx FLUX S trainer transport using FE-C over BLE and `pycycling`.
-- Top Sport / Christopeit WP5000: FTMS-first strategy with read-only GATT discovery fallback.
-- Adaptive Home Assistant dashboard card for desktop/mobile.
-- Explicit control arming; no automatic motor start or queued command replay after Bluetooth reconnection.
+- Machine-specific sensor, number and button registration for treadmill, indoor bike trainer and rower. The initial generic 32-entity set is no longer created for every device.
+- Dynamically add appropriate entities when an unknown device is identified by FTMS or Tacx BLE.
+- Automatically migrate existing b1 HEADWIND config entries (whose name begins HEADWIND) from the previous auto profile, preserving the configuration entry and BLE address.
+- Remove obsolete beta-1 entity registry entries after the machine is classified, without deleting matching entity IDs.
+- Native HEADWIND BLE controls: fan entity, mode selector, percentage presets and firmware metadata. Show fan controls beside trainer and optionally standalone.
+- Preserve existing pulse-strap pairing and fan's heart-rate mode. No control writes on reconnection or startup.
 
-**For first tests:** Start WP5000 with read-only values. Keep remote commands disarmed and physical safety controls accessible.
-**Known limitations:** Garmin/FIT converter not connected; proprietary WP5000 Bluetooth packets not decoded; unsupported devices may be shown as disconnected.
+**Tests:** offline protocol tests and UI syntax checked by CI; physical hardware tests remain pending. Do not use HA fan or FTMS UI as an emergency stop.

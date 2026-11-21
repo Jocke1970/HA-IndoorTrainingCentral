@@ -65,9 +65,9 @@ def targets_for(kind: str, profile: str) -> tuple[str, ...]:
     if kind == "bike" and profile == "tacx_fec":
         return ("power", "incline")
     if kind == "bike" and profile == "auto":
-        # Auto can discover FTMS or Tacx FE-C. The FE-C grade target is
-        # added once FE-C is identified, without creating all target types.
-        return ("power", "resistance")
+        # FTMS and Tacx FE-C differ. Only common ERG target before discovery.
+        # Add resistance for FTMS or grade for FE-C after protocol detection.
+        return ("power",)
     return MACHINE_NUMBERS.get(kind, ())
 
 
