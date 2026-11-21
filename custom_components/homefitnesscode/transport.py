@@ -11,18 +11,22 @@ from bleak_retry_connector import establish_connection
 from homeassistant.components import bluetooth
 from homeassistant.core import HomeAssistant
 
-from .const import CONTROL_CHAR, DATA_CHARS, FEATURE_CHAR, RANGE_CHARS, STATUS_CHAR
-from .protocol import PARSERS, encode_target, validate_reply
+from .const import CONTROL_CHAR, DATA_CHARS, FEATURE_CHAR, RANGE_CHARS, STATUS_CHAR, TACX_RX, TACX_TX
+from .profiles import make_profile
+from .protocol import encode_target, validate_reply
 
 _LOGGER = logging.getLogger(__name__)
 
 
 class Transport:
-    def __init__(self, hass: HomeAssistant, address: str, preferred: str,
+    def __init__(self, hass: HomeAssistant, address: str, preferred: str, profile_name: str,
                  on_data: Callable[[dict], None], on_disconnect: Callable[[], None]):
         self.hass = hass
         self.address = address
         self.preferred = preferred
+        self.profile_name = profile_name
+        self.profile = make_profile(profile_name)
+        self.tacx = None
         self.on_data = on_data
         self.on_disconnect = on_disconnect
         self.client: BleakClient | None = None
@@ -43,6 +47,7 @@ class Transport:
 
     def _disconnected(self, _client: BleakClient) -> None:
         self.client = None
+        self.tacx = None
         self.has_control = False
         self.armed = False
         if self._waiter is not None and not self._waiter.done():
@@ -53,7 +58,7 @@ class Transport:
         if self.machine_type is None:
             return
         try:
-            self.on_data(PARSERS[self.machine_type](bytes(payload)))
+            self.on_data(self.profile.parse(self.machine_type, bytes(payload)))
         except ValueError as err:
             _LOGGER.debug("Ignored malformed %s packet: %s", self.machine_type, err)
 
@@ -95,10 +100,27 @@ class Transport:
                 services = client.services
                 available = {kind: ch for kind, ch in DATA_CHARS.items()
                              if services.get_characteristic(ch)}
+                if (not available and services.get_characteristic(TACX_RX)
+                        and services.get_characteristic(TACX_TX)
+                        and self.profile_name in ("auto", "tacx_fec")):
+                    from pycycling.tacx_trainer_control import TacxTrainerControl
+                    self.tacx = TacxTrainerControl(client)
+                    self.machine_type = "bike"
+                    self.tacx.set_general_fe_data_page_handler(self._tacx_general)
+                    self.tacx.set_specific_trainer_data_page_handler(self._tacx_specific)
+                    await self.tacx.enable_fec_notifications()
+                    self.has_control = True
+                    self.armed = False
+                    self.client = client
+                    self.on_data({"protocol": "tacx_fec", "machine_type": "bike"})
+                    return
                 if not available:
-                    raise ConnectionError("No FTMS treadmill/bike/rower data characteristic")
+                    raise ConnectionError("No supported FTMS or Tacx FE-C data characteristics")
+                if self.profile_name == "tacx_fec":
+                    raise ConnectionError("Tacx FE-C selected but unsupported on this device")
                 self.machine_type = (self.preferred if self.preferred in available
                                      else next(iter(available)))
+                self.on_data({"protocol": self.profile.name, "machine_type": self.machine_type})
                 self.has_features = bool(services.get_characteristic(FEATURE_CHAR))
                 self.target_bits = 0
                 if self.has_features:
@@ -134,6 +156,7 @@ class Transport:
 
     async def disconnect(self) -> None:
         client, self.client = self.client, None
+        self.tacx = None
         self.armed = False
         self.has_control = False
         if client and client.is_connected:
@@ -141,8 +164,27 @@ class Transport:
 
     def supports_target(self, kind: str) -> bool:
         from .const import TARGET_BITS
+        if self.tacx is not None:
+            return self.connected and self.has_control and kind in ("power", "incline")
         return (self.connected and self.has_control and self.has_features
                 and bool(self.target_bits & (1 << TARGET_BITS[kind])))
+
+
+    def _tacx_general(self, data) -> None:
+        # FE-C page 16 fields are rolling/partial; do not expose byte-sized
+        # distance or elapsed values as cumulative workout totals.
+        values = {"speed_kmh": round(data.speed * 3.6, 2)} if data.speed is not None else {}
+        if data.heart_rate is not None:
+            values["heart_rate_bpm"] = data.heart_rate
+        self.on_data(values)
+
+    def _tacx_specific(self, data) -> None:
+        values = {}
+        if data.instantaneous_power is not None and data.instantaneous_power != 0xFFF:
+            values["power_w"] = data.instantaneous_power
+        if data.instantaneous_cadence is not None and data.instantaneous_cadence != 0xFF:
+            values["cadence_rpm"] = data.instantaneous_cadence
+        self.on_data(values)
 
     async def _write(self, payload: bytes, *, need_arm: bool = True) -> None:
         async with self._write_lock:
@@ -161,15 +203,31 @@ class Transport:
                 self._waiter = None
 
     async def arm(self) -> None:
+        if self.tacx is not None and self.connected:
+            # FE-C over BLE has no FTMS request-control opcode; local opt-in only.
+            self.armed = True
+            return
         await self._write(b"\x00", need_arm=False)  # Request Control, 0x00
         self.armed = True
 
     async def target(self, kind: str, value: float) -> None:
         if not self.supports_target(kind):
             raise ValueError(f"{kind} target not advertised by machine")
+        if self.tacx is not None:
+            if not self.armed:
+                raise PermissionError("Tacx control is not armed")
+            if kind == "power":
+                await self.tacx.set_target_power(int(value))
+                return
+            if kind == "incline":
+                await self.tacx.set_track_resistance(value, 0.004)
+                return
+            raise ValueError("Tacx supports only power and simulated grade in this version")
         await self._write(encode_target(kind, value))
 
     async def session(self, action: str) -> None:
+        if self.tacx is not None:
+            raise ValueError("FE-C trainers are driven by pedaling; no start/stop command")
         if action == "start":
             await self._write(b"\x07")  # Start or Resume
         elif action == "stop":

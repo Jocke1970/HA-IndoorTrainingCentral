@@ -1,0 +1,25 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Anslut träningsutrustning",
+        "description": "Välj maskin och försiktiga gränser för fjärrstyrning.",
+        "data": {
+          "address": "Bluetooth-enhet",
+          "profile": "Bluetooth-protokoll",
+          "machine": "Maskintyp",
+          "max_speed": "Maxhastighet (km/h)",
+          "max_incline": "Maxlutning (%)",
+          "max_resistance": "Maxmotstånd",
+          "max_power": "Maxeffekt i ERG-läge (W)"
+        }
+      },
+      "confirm": {
+        "title": "Lägg till {name}",
+        "description": "Anslut den här Bluetooth-träningsmaskinen?"
+      }
+    },
+    "error": {"no_devices": "Ingen kompatibel maskin hittades. Kontrollera Bluetooth och starta maskinen."},
+    "abort": {"already_configured": "Maskinen är redan konfigurerad."}
+  }
+}

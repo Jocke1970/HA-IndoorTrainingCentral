@@ -17,7 +17,7 @@ class HFCButton(HFCEntity, ButtonEntity):
     def available(self):
         t = self.coordinator.transport
         return bool(t.connected and t.has_control and
-                    (self.action == "arm" or t.armed))
+                    (self.action == "arm" or (t.armed and t.tacx is None)))
 
     async def async_press(self):
         await self.coordinator.command(self.action)

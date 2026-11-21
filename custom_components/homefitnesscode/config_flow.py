@@ -5,7 +5,7 @@ import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.components import bluetooth
 
-from .const import CAP_DEFAULTS, DOMAIN, MACHINE_OPTIONS, PROFILE_OPTIONS, SERVICE_FTMS
+from .const import CAP_DEFAULTS, DOMAIN, MACHINE_OPTIONS, PROFILE_OPTIONS, SERVICE_FTMS, TACX_FEC_SERVICE
 
 
 class HomeFitnessCodeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -36,7 +36,7 @@ class HomeFitnessCodeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         devices = {
             dev.address: f"{dev.name or 'FTMS'} ({dev.address})"
             for dev in bluetooth.async_discovered_service_info(self.hass, connectable=True)
-            if SERVICE_FTMS in [uuid.lower() for uuid in dev.service_uuids]
+            if {SERVICE_FTMS, TACX_FEC_SERVICE}.intersection(uuid.lower() for uuid in dev.service_uuids)
         }
         if not devices:
             return self.async_show_form(step_id="user", errors={"base": "no_devices"})

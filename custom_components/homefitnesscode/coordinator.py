@@ -22,7 +22,7 @@ class HFCState(DataUpdateCoordinator[dict[str, Any]]):
         self.entry = entry
         self.transport = Transport(
             hass, entry.data["address"], entry.data.get("machine", "auto"),
-            self._received, self._disconnected,
+            entry.data.get("profile", "auto"), self._received, self._disconnected,
         )
         self.data = {"connected": False, "armed": False, "session_status": "unknown",
                      "machine_type": entry.data.get("machine", "auto"),
@@ -46,10 +46,10 @@ class HFCState(DataUpdateCoordinator[dict[str, Any]]):
     async def _async_update_data(self) -> dict:
         try:
             await self.transport.connect()
-        except (ConnectionError, OSError, TimeoutError, Exception) as err:
+        except Exception as err:
             # Keep config entry installed even if the equipment is off.
             _LOGGER.debug("FTMS waiting for %s: %s", self.entry.data["address"], err)
-            return {**self.data, "connected": False, "armed": False}
+            return {**self.data, "connected": False, "armed": False, "session_status": "disconnected"}
         return {
             **self.data, "connected": self.transport.connected,
             "armed": self.transport.armed,
@@ -64,7 +64,7 @@ class HFCState(DataUpdateCoordinator[dict[str, Any]]):
             "resistance": ("bike", "rower"),
             "power": ("bike", "rower"),
         }
-        return machine in relevant[kind] and self.transport.supports_target(kind)
+        return (machine in relevant[kind] or (machine == "bike" and kind == "incline" and self.transport.tacx is not None)) and self.transport.supports_target(kind)
 
     def limits(self, kind: str) -> tuple[float, float, float]:
         user_max = float(self.entry.data.get(f"max_{kind}", CAP_DEFAULTS[kind]))

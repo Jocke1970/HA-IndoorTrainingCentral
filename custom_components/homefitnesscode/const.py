@@ -17,4 +17,8 @@ COMMANDS = {"speed": 0x02, "incline": 0x03, "resistance": 0x04, "power": 0x05}
 CAP_DEFAULTS = {"speed": 6.0, "incline": 5.0, "resistance": 10.0, "power": 200.0}
 PLATFORMS = ["sensor", "binary_sensor", "number", "button"]
 MACHINE_OPTIONS = ("auto", "treadmill", "bike", "rower")
-PROFILE_OPTIONS = ("auto", "ftms", "homefitnesscode")
+PROFILE_OPTIONS = ("auto", "ftms", "homefitnesscode", "tacx_fec")
+
+TACX_FEC_SERVICE = "6e40fec1-b5a3-f393-e0a9-e50e24dcca9e"
+TACX_RX = "6e40fec3-b5a3-f393-e0a9-e50e24dcca9e"
+TACX_TX = "6e40fec2-b5a3-f393-e0a9-e50e24dcca9e"
