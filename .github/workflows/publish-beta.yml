@@ -43,7 +43,7 @@ jobs:
           manifest = json.loads((root / "manifest.json").read_text())
           hacs = json.loads(Path("hacs.json").read_text())
           assert manifest["domain"] == "homefitnesscode"
-          assert manifest["version"].endswith("b1"), "Bump the beta version before publishing"
+          assert "b" in manifest["version"], "A beta (pre-release) version is required"
           assert hacs["name"] == "HomeFitnessCode"
           assert (root / "www/homefitnesscode-card.js").is_file()
           assert (root / "translations/en.json").is_file()
