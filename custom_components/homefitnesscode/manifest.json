@@ -1,0 +1,12 @@
+{
+  "domain": "homefitnesscode",
+  "name": "HomeFitnessCode / FTMS (pre-release only)",
+  "version": "0.0.0",
+  "documentation": "https://github.com/Jocke1970/HomeFitnessCode",
+  "issue_tracker": "https://github.com/Jocke1970/HomeFitnessCode/issues",
+  "codeowners": [
+    "@Jocke1970"
+  ],
+  "config_flow": false,
+  "iot_class": "local_push"
+}
