@@ -2,7 +2,7 @@
   "config": {
     "step": {
       "user": {
-        "title": "Anslut träningsutrustning",
+        "title": "HA-IndoorTrainingCentral: anslut utrustning",
         "description": "Välj maskin och försiktiga gränser för fjärrstyrning.",
         "data": {
           "address": "Bluetooth-enhet",
@@ -15,11 +15,15 @@
         }
       },
       "confirm": {
-        "title": "Lägg till {name}",
+        "title": "HA-IndoorTrainingCentral: lägg till {name}",
         "description": "Anslut den här Bluetooth-träningsmaskinen?"
       }
     },
-    "error": {"no_devices": "Ingen kompatibel maskin hittades. Kontrollera Bluetooth och starta maskinen."},
-    "abort": {"already_configured": "Maskinen är redan konfigurerad."}
+    "error": {
+      "no_devices": "Ingen kompatibel maskin hittades. Kontrollera Bluetooth och starta maskinen."
+    },
+    "abort": {
+      "already_configured": "Maskinen är redan konfigurerad."
+    }
   }
 }

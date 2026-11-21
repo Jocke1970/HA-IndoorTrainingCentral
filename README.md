@@ -1,8 +1,8 @@
-# HomeFitnessCode / FTMS – Home Assistant
+# HA-IndoorTrainingCentral – Home Assistant
 
 **Experimental beta preview – not hardware-verified. Install the published pre-release using Home Assistant Marketplace.**
 
-Shared backend and responsive Lovelace custom card for treadmill, indoor cycling and indoor rowing.
+A shared Home Assistant training center for treadmill, Tacx FLUX S cycling, Top Sport WP5000 rowing, and Wahoo HEADWIND fan control.
 
 ## Machine profiles
 
@@ -27,15 +27,17 @@ A Wahoo KICKR HEADWIND can be added **as its own BLE device** to this integratio
 This beta is distributed as a GitHub **pre-release**, not from the development branch and not as a manually copied archive.
 
 1. In Home Assistant go to **Settings → Marketplace → Add from link**.
-2. Add `https://github.com/Jocke1970/HomeFitnessCode` as an **Integration**.
-3. Open HomeFitnessCode in Marketplace and enable **Pre-release**.
-4. Install the newest `2026.11.0bN` pre-release (currently `2026.11.0b2`), not the `main` branch.
-5. Open **Settings → Devices & services** and configure the HomeFitnessCode / FTMS integration.
-6. Register `/homefitnesscode/homefitnesscode-card.js` as a JavaScript module in dashboard resources, then add the card:
+2. Add `https://github.com/Jocke1970/HA-IndoorTrainingCentral` as an **Integration**.
+3. Open HA-IndoorTrainingCentral in Marketplace and enable **Pre-release**.
+4. Install the newest `2026.11.0bN` pre-release (currently `2026.11.0b3`), not the `main` branch.
+5. Open **Settings → Devices & services** and configure HA-IndoorTrainingCentral.
+6. For new dashboards, register `/indoor-training-central/indoor-training-central-card.js` as a JavaScript module and add:
 
 ```yaml
-type: custom:homefitnesscode-card
+type: custom:indoor-training-central-card
 ```
+
+Already configured dashboards still work with `type: custom:homefitnesscode-card` and the old `/homefitnesscode/homefitnesscode-card.js` resource. Do not register both resources unless needed.
 
 Marketplace manages downloaded files and replaces the integration directory during updates. If HomeFitnessCode was previously installed manually, do not install a second copy into the same domain; first reconcile the previous installation. Initial tests should be read-only.
 
@@ -63,3 +65,15 @@ See docs/protocols.md for protocol details and the WP5000 discovery checklist.
 - Bike dashboard shows the linked HEADWIND fan, mode selector (Off / Heart rate / Speed / Manual), percent presets, and firmware version where readable. The fan also has a standalone selectable view.
 - Pulsband/HEADWIND native pairing is preserved. No writes at startup or reconnect; manual fan percentage deliberately switches to Manual.
 - This is a preliminary backend + UI code fix. Automated protocol tests and JS syntax validation are necessary, but not a substitute for real hardware confirmation.
+
+## Name and compatibility (beta b3)
+
+The GitHub repository was renamed to **Jocke1970/HA-IndoorTrainingCentral**. GitHub redirects the old repository URL, but new Marketplace additions should use the new URL.
+
+The user-facing integration and card are called **HA-IndoorTrainingCentral**. For continuity with existing installations, the internal domain and Python package remain `homefitnesscode`. The entity unique IDs, config entries, device registry, and old Lovelace card name and resource URL remain valid.
+
+Narrow desktop dashboard columns and phones are handled by a responsive tile/control layout. The interface lists only controls actually created for the connected equipment, includes Wahoo HEADWIND controls in the Tacx view, and handles offline status consistently.
+
+Do **not** manually rename `/config/custom_components/homefitnesscode`: that is the original integration domain and is intentionally unchanged.
+
+FIT session export remains planned, not implemented.

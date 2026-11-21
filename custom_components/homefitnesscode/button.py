@@ -5,8 +5,8 @@ from .const import DOMAIN
 from .entity import HFCEntity
 from .entity_catalog import buttons_for
 
-ACTIONS = {"arm": "Arm remote control", "start": "Start / resume",
-           "pause": "Pause", "stop": "Stop"}
+ACTIONS = {"arm": "Aktivera styrning", "start": "Starta / fortsätt",
+           "pause": "Pausa", "stop": "Stoppa"}
 
 
 class HFCButton(HFCEntity, ButtonEntity):

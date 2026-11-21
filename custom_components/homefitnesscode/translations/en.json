@@ -2,7 +2,7 @@
   "config": {
     "step": {
       "user": {
-        "title": "Connect training equipment",
+        "title": "HA-IndoorTrainingCentral: connect equipment",
         "description": "Choose the equipment and safe remote-control limits.",
         "data": {
           "address": "Bluetooth device",
@@ -15,11 +15,15 @@
         }
       },
       "confirm": {
-        "title": "Add {name}",
+        "title": "HA-IndoorTrainingCentral: add {name}",
         "description": "Connect this Bluetooth fitness machine?"
       }
     },
-    "error": {"no_devices": "No compatible machine discovered. Turn on your Bluetooth scanner and machine."},
-    "abort": {"already_configured": "Device already configured."}
+    "error": {
+      "no_devices": "No compatible machine discovered. Turn on your Bluetooth scanner and machine."
+    },
+    "abort": {
+      "already_configured": "Device already configured."
+    }
   }
 }

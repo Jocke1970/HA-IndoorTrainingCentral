@@ -1,8 +1,8 @@
 {
   "domain": "homefitnesscode",
-  "name": "HomeFitnessCode / FTMS",
-  "version": "2026.11.0b2",
-  "documentation": "https://github.com/Jocke1970/HomeFitnessCode",
+  "name": "HA-IndoorTrainingCentral",
+  "version": "2026.11.0b3",
+  "documentation": "https://github.com/Jocke1970/HA-IndoorTrainingCentral",
   "codeowners": [
     "@Jocke1970"
   ],
@@ -26,5 +26,5 @@
   "requirements": [
     "pycycling==0.4.1"
   ],
-  "issue_tracker": "https://github.com/Jocke1970/HomeFitnessCode/issues"
+  "issue_tracker": "https://github.com/Jocke1970/HA-IndoorTrainingCentral/issues"
 }

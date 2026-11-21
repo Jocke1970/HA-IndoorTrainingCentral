@@ -17,6 +17,8 @@ _LOGGER = logging.getLogger(__name__)
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     await hass.http.async_register_static_paths([
         StaticPathConfig("/homefitnesscode/homefitnesscode-card.js",
+                         str(Path(__file__).parent / "www" / "homefitnesscode-card.js"), False),
+        StaticPathConfig("/indoor-training-central/indoor-training-central-card.js",
                          str(Path(__file__).parent / "www" / "homefitnesscode-card.js"), False)
     ])
     return True
