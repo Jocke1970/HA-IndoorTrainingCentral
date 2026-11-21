@@ -83,7 +83,7 @@ def registered_metrics(kind: str, profile: str) -> set[str]:
         return {"connected", *TYPE_SENSORS["headwind"],
                 "headwind_fan", "headwind_mode_select"}
     result = {"connected", *sensors_for(kind, profile)}
-    if kind in MACHINE_NUMBERS:
+    if kind in MACHINE_NUMBERS and profile != "christopeit_wp5000":
         result.add("armed")
         result.update(buttons_for(kind, profile))
         result.update("target_" + target for target in targets_for(kind, profile))
