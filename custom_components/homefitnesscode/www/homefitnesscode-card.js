@@ -95,7 +95,7 @@
     ].join("");}
     shell(key,type,groups){
       const d=defs[type]||defs.auto;
-      const opt=Object.keys(groups).sort().map(id=>'<option value="'+esc(id)+'"'+(id===key?' selected':'')+'>'+esc(groups[id]?.machine_type?.attributes?.hfc_device_name||id)+'</option>').join("");
+      const opt=Object.keys(groups).sort().map(id=>'<option value="'+esc(id)+'"'+(id===key?' selected':'')+'>'+esc(Object.values(groups[id]).find(x=>x.attributes?.hfc_device_name)?.attributes?.hfc_device_name||id)+'</option>').join("");
       const tiles=d.metrics.map(m=>'<div class="tile"><div class="label">'+esc(label[m]||m)+'</div><div class="val" data-metric="'+m+'">–</div><div class="unit">'+esc(units[m]||"")+'</div></div>').join("");
       const targets=d.targets.filter(m=>groups[key]?.["target_"+m]).map(m=>'<label class="target">'+esc(label[m])+'<span class="targetrow"><input type="number" inputmode="decimal" data-target="'+m+'"/><button type="button" data-set="'+m+'">Ställ in</button></span></label>').join("");
       const actions=['arm',...(type==='treadmill'?['start','pause','stop']:[])].filter(a=>groups[key]?.[a]).map(a=>
@@ -135,13 +135,13 @@
         if(input.value.trim()!==""&&input.checkValidity())this.fanPercent(Number(input.value));
       });
       this.shadowRoot.querySelectorAll('[data-fan-preset]').forEach(b=>b.addEventListener('click',()=>this.fanPercent(Number(b.dataset.fanPreset))));
-      this.signature=key+':'+type+':'+Object.keys(groups).sort().join(',')+':'+this.fans().map(([id])=>id).join(',');
+      this.signature=key+':'+type+':'+Object.keys(groups).sort().join(',')+':'+Object.keys(groups[key]).sort().join(',')+':'+this.fans().map(([id])=>id).join(',');
     }
     draw(){
       if(!this.h)return;
       if(!this.shadowRoot)this.attachShadow({mode:"open"});
       const groups=this.collect(),ids=Object.keys(groups).sort();
-      if(!ids.length){this.shadowRoot.innerHTML='<ha-card><div style="padding:22px">Inga maskiner registrerade. Konfigurera HomeFitnessCode-integrationen först.</div></ha-card>';this.signature="";return;}
+      if(!ids.length){this.shadowRoot.innerHTML='<ha-card><div style="padding:22px">Inga maskiner registrerade. Konfigurera HA-IndoorTrainingCentral först.</div></ha-card>';this.signature="";return;}
       const key=ids.includes(this.chosen)?this.chosen:ids[0];this.chosen=key;
       const g=groups[key];
       const rawType=this.value(g,"machine_type");
@@ -149,7 +149,7 @@
       const type=defs[rawType]?rawType:(g.headwind_fan?"headwind":
         name.includes("TACX")||name.includes("FLUX")?"bike":
         name.includes("WP5000")?"rower":"auto");
-      if(this.signature!==key+':'+type+':'+ids.join(',')+':'+this.fans().map(([id])=>id).join(','))this.shell(key,type,groups);
+      if(this.signature!==key+':'+type+':'+ids.join(',')+':'+Object.keys(g).sort().join(',')+':'+this.fans().map(([id])=>id).join(','))this.shell(key,type,groups);
       const connected=this.value(g,"connected")==="on",armed=this.value(g,"armed")==="on";
       const rawStatus=this.value(g,"session_status");
       const sessionStatus=connected?(rawStatus==="disconnected"||!rawStatus?"redo":rawStatus):
