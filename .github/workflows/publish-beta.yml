@@ -1,0 +1,69 @@
+name: Publish beta pre-release
+
+on:
+  push:
+    branches: [beta]
+    paths:
+      - "custom_components/homefitnesscode/**"
+      - "hacs.json"
+      - "README.md"
+      - ".github/workflows/publish-beta.yml"
+      - ".github/release-notes-beta.md"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: homefitnesscode-beta-release
+  cancel-in-progress: false
+
+jobs:
+  test-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Check protocol tests
+        run: |
+          python -m pip install pytest
+          python -m compileall -q custom_components
+          pytest -q tests
+      - name: Check Marketplace packaging
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          root = Path("custom_components/homefitnesscode")
+          manifest = json.loads((root / "manifest.json").read_text())
+          hacs = json.loads(Path("hacs.json").read_text())
+          assert manifest["domain"] == "homefitnesscode"
+          assert manifest["version"].endswith("b1"), "Bump the beta version before publishing"
+          assert hacs["name"] == "HomeFitnessCode"
+          assert (root / "www/homefitnesscode-card.js").is_file()
+          assert (root / "translations/en.json").is_file()
+          print("Marketplace content OK:", manifest["version"])
+          PY
+      - name: Publish versioned pre-release from beta branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="$(python -c 'import json; print(json.load(open("custom_components/homefitnesscode/manifest.json"))["version"])')"
+          if [[ ! "$TAG" =~ ^[0-9]{4}\.[0-9]{2}\.[0-9]+b[0-9]+$ ]]; then
+            echo "::error::Not a valid beta version tag: $TAG"
+            exit 1
+          fi
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "::error::Release $TAG exists. Increase manifest.version for the next beta."
+            exit 1
+          fi
+          gh release create "$TAG" --target "$GITHUB_SHA" --prerelease \
+            --title "HomeFitnessCode $TAG (beta)" \
+            --notes-file .github/release-notes-beta.md

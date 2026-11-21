@@ -1,0 +1,25 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect training equipment",
+        "description": "Choose the equipment and safe remote-control limits.",
+        "data": {
+          "address": "Bluetooth device",
+          "profile": "Bluetooth protocol",
+          "machine": "Machine type",
+          "max_speed": "Maximum remote speed (km/h)",
+          "max_incline": "Maximum target incline (%)",
+          "max_resistance": "Maximum resistance",
+          "max_power": "Maximum ERG power (W)"
+        }
+      },
+      "confirm": {
+        "title": "Add {name}",
+        "description": "Connect this Bluetooth fitness machine?"
+      }
+    },
+    "error": {"no_devices": "No compatible machine discovered. Turn on your Bluetooth scanner and machine."},
+    "abort": {"already_configured": "Device already configured."}
+  }
+}
