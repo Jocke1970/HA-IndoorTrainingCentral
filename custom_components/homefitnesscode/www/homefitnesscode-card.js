@@ -1,4 +1,4 @@
-/* HomeFitnessCode: responsive Lovelace dashboard (no external JS dependencies). */
+/* HA-IndoorTrainingCentral: responsive Lovelace dashboard with legacy card alias. */
 (() => {
   "use strict";
   const defs = {
@@ -64,15 +64,15 @@
       return Number.isFinite(n)?n.toLocaleString("sv-SE",{maximumFractionDigits:2}):raw;
     }
     styleText(){return [
-      ":host{display:block;color:var(--primary-text-color)}",
+      ":host{display:block;color:var(--primary-text-color);container-type:inline-size}",
       "ha-card{border-radius:16px;overflow:hidden}",
       ".root{padding:20px;display:grid;gap:14px}",
-      ".head{display:flex;justify-content:space-between;align-items:center;gap:16px}",
-      ".kicker{font-weight:750;letter-spacing:.13em;font-size:11px;color:var(--secondary-text-color)}",
+      ".head{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}",
+      ".kicker{font-weight:750;letter-spacing:.06em;font-size:11px;color:var(--secondary-text-color)}",
       "h2{margin:3px 0;font-size:23px}h3{margin:0 0 8px;font-size:16px}",
       ".sub,.foot{font-size:12px;color:var(--secondary-text-color)}",
       "select,input{font:inherit;color:var(--primary-text-color);background:var(--card-background-color);border:1px solid var(--divider-color);border-radius:9px;padding:9px;box-sizing:border-box;min-width:0}",
-      ".stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px}",
+      ".stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,145px),1fr));gap:9px}",
       ".tile{padding:12px;border-radius:12px;background:var(--secondary-background-color)}",
       ".label{font-size:12px;color:var(--secondary-text-color)}",
       ".val{font-size:26px;font-weight:750;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
@@ -82,24 +82,24 @@
       "button{font:inherit;font-size:13px;cursor:pointer;color:var(--primary-text-color);background:var(--secondary-background-color);border:1px solid var(--divider-color);border-radius:9px;padding:10px}",
       "button:disabled,input:disabled{opacity:.4;cursor:not-allowed}",
       ".danger{color:var(--error-color);border-color:var(--error-color)}",
-      ".controls{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:15px}",
+      ".controls{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:12px;margin-top:15px}",
       ".target{display:grid;gap:6px;font-size:12px}",
-      ".targetrow input{flex:1;width:80px}",
+      ".targetrow input{flex:1 1 100px;width:80px;min-width:0}",
       ".note,.message{margin:8px 0;font-size:12px;color:var(--secondary-text-color)}",
       ".foot{display:flex;justify-content:space-between;gap:12px}",
       ".fan-line{display:flex;align-items:center;gap:12px;flex-wrap:wrap}",
       ".fan-percent{font-size:23px;font-weight:750}",
-      ".fan-line select{max-width:210px}",
+      ".fan-line select{max-width:210px;flex:1 1 150px}",
       ".fan-note{font-size:12px;color:var(--secondary-text-color);margin:4px 0}",
-      "@media(max-width:680px){.root{padding:12px}.head{display:grid;gap:10px}select{width:100%}.stats{grid-template-columns:repeat(2,minmax(0,1fr))}.val{font-size:22px}.controls{grid-template-columns:1fr}.actions button{flex:1}}"
+      "@container (max-width:540px){.root{padding:12px}.head{display:grid;gap:10px}.head select{width:100%;max-width:100%}.stats{grid-template-columns:repeat(2,minmax(0,1fr))}.val{font-size:22px}.controls{grid-template-columns:1fr}.actions button{flex:1}}"
     ].join("");}
     shell(key,type,groups){
       const d=defs[type]||defs.auto;
       const opt=Object.keys(groups).sort().map(id=>'<option value="'+esc(id)+'"'+(id===key?' selected':'')+'>'+esc(groups[id]?.machine_type?.attributes?.hfc_device_name||id)+'</option>').join("");
       const tiles=d.metrics.map(m=>'<div class="tile"><div class="label">'+esc(label[m]||m)+'</div><div class="val" data-metric="'+m+'">–</div><div class="unit">'+esc(units[m]||"")+'</div></div>').join("");
-      const targets=d.targets.map(m=>'<label class="target">'+esc(label[m])+'<span class="targetrow"><input type="number" inputmode="decimal" data-target="'+m+'"/><button type="button" data-set="'+m+'">Ställ in</button></span></label>').join("");
-      const actions=['arm',...(type==='treadmill'?['start','pause','stop']:[])].map(a=>
-        '<button type="button" data-action="'+a+'" '+(a==='stop'?'class="danger"':'')+'>'+({arm:"Aktivera styrning",start:"Start",pause:"Paus",stop:"Stopp"}[a])+'</button>').join("");
+      const targets=d.targets.filter(m=>groups[key]?.["target_"+m]).map(m=>'<label class="target">'+esc(label[m])+'<span class="targetrow"><input type="number" inputmode="decimal" data-target="'+m+'"/><button type="button" data-set="'+m+'">Ställ in</button></span></label>').join("");
+      const actions=['arm',...(type==='treadmill'?['start','pause','stop']:[])].filter(a=>groups[key]?.[a]).map(a=>
+        '<button type="button" data-action="'+a+'" '+(a==='stop'?'class="danger"':'')+'>'+({arm:type==="bike"?"Aktivera trainerstyrning":"Aktivera styrning",start:"Start",pause:"Paus",stop:"Stopp"}[a])+'</button>').join("");
       const fanChoices=this.fans();
       const fanOptions=fanChoices.map(([id,s])=>'<option value="'+esc(id)+'"'+(this.fanSelected===id?' selected':'')+'>'+esc(s.attributes?.friendly_name||id)+'</option>').join("");
       const fanPanel=(type==="bike"||type==="headwind")?(
@@ -120,7 +120,7 @@
         '<div class="message" aria-live="polite"></div></section>'
       );
       this.shadowRoot.innerHTML='<style>'+this.styleText()+'</style><ha-card><div class="root">'+
-        '<header class="head"><div><div class="kicker">HOMEFITNESSCODE · FTMS</div><h2>'+d.name+'</h2><div class="sub" data-info>Ej ansluten</div></div>'+
+        '<header class="head"><div><div class="kicker">HA-INDOORTRAININGCENTRAL</div><h2>'+d.name+'</h2><div class="sub" data-info>Ej ansluten</div></div>'+
         '<select aria-label="Välj träningsmaskin">'+opt+'</select></header>'+
         trainPanel+fanPanel+
         '<footer class="foot"><span data-protocol>Protokoll: –</span><span data-arm>Låst</span></footer>'+
@@ -151,8 +151,11 @@
         name.includes("WP5000")?"rower":"auto");
       if(this.signature!==key+':'+type+':'+ids.join(',')+':'+this.fans().map(([id])=>id).join(','))this.shell(key,type,groups);
       const connected=this.value(g,"connected")==="on",armed=this.value(g,"armed")==="on";
+      const rawStatus=this.value(g,"session_status");
+      const sessionStatus=connected?(rawStatus==="disconnected"||!rawStatus?"redo":rawStatus):
+        "väntar på anslutning";
       this.shadowRoot.querySelector('[data-info]').textContent=(connected?"● Ansluten":"○ Frånkopplad")+
-        (type==="headwind"?"":(" · "+(this.value(g,"session_status")||"väntar på anslutning")));
+        (type==="headwind"?"":(" · "+sessionStatus));
       this.shadowRoot.querySelector('[data-protocol]').textContent="Protokoll: "+(this.value(g,"protocol")||"–");
       this.shadowRoot.querySelector('[data-arm]').textContent=type==="headwind"?"Fläktstyrning separat":(armed?"Styrning aktiverad":"Styrning låst");
       this.shadowRoot.querySelectorAll('[data-metric]').forEach(el=>el.textContent=this.display(g,el.dataset.metric));
@@ -231,7 +234,11 @@
     message(v){const e=this.shadowRoot.querySelector(".message")||
       this.shadowRoot.querySelector("[data-fan-status]");if(e)e.textContent=v;}
   }
+  if(!customElements.get("indoor-training-central-card"))customElements.define("indoor-training-central-card",Card);
+  // Existing dashboards retain the legacy card type.
   if(!customElements.get("homefitnesscode-card"))customElements.define("homefitnesscode-card",Card);
   window.customCards=window.customCards||[];
-  window.customCards.push({type:"homefitnesscode-card",name:"HomeFitnessCode",description:"Responsive training dashboard for treadmill, bike and rower"});
+  if(!window.customCards.some(card=>card.type==="indoor-training-central-card")){
+    window.customCards.push({type:"indoor-training-central-card",name:"HA-IndoorTrainingCentral",description:"Inomhusträning: löpband, cykel, rodd och HEADWIND"});
+  }
 })();

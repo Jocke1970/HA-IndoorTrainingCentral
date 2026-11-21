@@ -15,4 +15,6 @@ jobs:
       - run: python -m compileall -q custom_components
       - run: pytest -q tests
       - name: Validate custom dashboard JS syntax
-        run: node --check custom_components/homefitnesscode/www/homefitnesscode-card.js
+        run: |
+          node --check custom_components/homefitnesscode/www/homefitnesscode-card.js
+          node tests/test_card_registration.cjs
