@@ -20,7 +20,17 @@ class HFCBinarySensor(HFCEntity, BinarySensorEntity):
 
 async def async_setup_entry(hass, entry, async_add_entities):
     coord = hass.data[DOMAIN][entry.entry_id]
-    entities = [HFCBinarySensor(coord, "connected", "Connected")]
-    if entry.data.get("profile") != "wahoo_headwind":
-        entities.append(HFCBinarySensor(coord, "armed", "Control armed"))
-    async_add_entities(entities)
+    async_add_entities([HFCBinarySensor(coord, "connected", "Connected")])
+    added = False
+
+    def add_arm_for_machine() -> None:
+        nonlocal added
+        if added or coord.data.get("machine_type") not in ("treadmill", "bike", "rower"):
+            return
+        if entry.data.get("profile") == "christopeit_wp5000":
+            return
+        added = True
+        async_add_entities([HFCBinarySensor(coord, "armed", "Control armed")])
+
+    add_arm_for_machine()
+    entry.async_on_unload(coord.async_add_listener(add_arm_for_machine))

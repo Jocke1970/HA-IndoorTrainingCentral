@@ -11,6 +11,7 @@ from homeassistant.config_entries import ConfigEntry
 
 from .const import CAP_DEFAULTS, DOMAIN
 from .transport import Transport
+from .entity_catalog import inferred_machine
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -20,12 +21,13 @@ class HFCState(DataUpdateCoordinator[dict[str, Any]]):
         super().__init__(hass, _LOGGER, name=f"{DOMAIN}_{entry.entry_id}",
                          update_interval=timedelta(seconds=15))
         self.entry = entry
+        initial_kind = inferred_machine(dict(entry.data), entry.title)
         self.transport = Transport(
-            hass, entry.data["address"], entry.data.get("machine", "auto"),
+            hass, entry.data["address"], initial_kind,
             entry.data.get("profile", "auto"), self._received, self._disconnected,
         )
         self.data = {"connected": False, "armed": False, "session_status": "unknown",
-                     "machine_type": entry.data.get("machine", "auto"),
+                     "machine_type": initial_kind,
                      "protocol": entry.data.get("profile", "auto")}
         self.targets: dict[str, float] = {}
 
@@ -50,10 +52,15 @@ class HFCState(DataUpdateCoordinator[dict[str, Any]]):
             # Keep config entry installed even if the equipment is off.
             _LOGGER.debug("FTMS waiting for %s: %s", self.entry.data["address"], err)
             return {**self.data, "connected": False, "armed": False, "session_status": "disconnected"}
+        connected = self.transport.connected
         return {
-            **self.data, "connected": self.transport.connected,
+            **self.data, "connected": connected,
             "armed": self.transport.armed,
-            "machine_type": self.transport.machine_type,
+            "machine_type": self.transport.machine_type or self.data["machine_type"],
+            "session_status": (
+                "ready" if connected and self.data.get("session_status") == "disconnected"
+                else self.data.get("session_status", "unknown")
+            ),
         }
 
     def can_target(self, kind: str) -> bool:

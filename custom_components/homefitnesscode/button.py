@@ -3,6 +3,7 @@ from homeassistant.components.button import ButtonEntity
 
 from .const import DOMAIN
 from .entity import HFCEntity
+from .entity_catalog import buttons_for
 
 ACTIONS = {"arm": "Arm remote control", "start": "Start / resume",
            "pause": "Pause", "stop": "Stop"}
@@ -25,6 +26,18 @@ class HFCButton(HFCEntity, ButtonEntity):
 
 async def async_setup_entry(hass, entry, async_add_entities):
     coord = hass.data[DOMAIN][entry.entry_id]
+    added = set()
+
+    def add_machine_buttons() -> None:
+        new = [key for key in buttons_for(
+            coord.data.get("machine_type", "auto"),
+            entry.data.get("profile", "auto"),
+        ) if key not in added]
+        if new:
+            added.update(new)
+            async_add_entities([HFCButton(coord, key, ACTIONS[key]) for key in new])
+
     if entry.data.get("profile") == "wahoo_headwind":
         return
-    async_add_entities([HFCButton(coord, key, name) for key, name in ACTIONS.items()])
+    add_machine_buttons()
+    entry.async_on_unload(coord.async_add_listener(add_machine_buttons))

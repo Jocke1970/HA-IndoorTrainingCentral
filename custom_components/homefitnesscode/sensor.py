@@ -3,6 +3,7 @@ from homeassistant.components.sensor import SensorEntity, SensorStateClass
 
 from .const import DOMAIN
 from .entity import HFCEntity
+from .entity_catalog import sensors_for
 
 # metric: label, unit, machine types
 METRICS = {
@@ -41,7 +42,7 @@ class HFCSensor(HFCEntity, SensorEntity):
 
     @property
     def available(self):
-        return (self.coordinator.data.get("connected", False)
+        return ((self.metric in ("machine_type", "protocol") or self.coordinator.data.get("connected", False))
                 and (self.allowed is None or
                      self.coordinator.data.get("machine_type") in self.allowed)
                 and self.metric in self.coordinator.data)
@@ -60,11 +61,22 @@ class HFCSensor(HFCEntity, SensorEntity):
 
 async def async_setup_entry(hass, entry, async_add_entities):
     coord = hass.data[DOMAIN][entry.entry_id]
-    if entry.data.get("profile") == "wahoo_headwind":
-        async_add_entities([
-            HFCSensor(coord, "headwind_mode", "Fan mode", None, None),
-            HFCSensor(coord, "fan_percent", "Fan speed", "%", None),
-            HFCSensor(coord, "firmware_version", "HEADWIND firmware", None, None),
-        ])
-        return
-    async_add_entities([HFCSensor(coord, k, *values) for k, values in METRICS.items()])
+    profile = entry.data.get("profile", "auto")
+    added = set()
+
+    def add_for_machine() -> None:
+        keys = sensors_for(coord.data.get("machine_type", "auto"), profile)
+        new = [key for key in keys if key not in added]
+        if new:
+            added.update(new)
+            async_add_entities([
+                HFCSensor(coord, key, *METRICS[key])
+                if key in METRICS else HFCSensor(coord, key, {
+                    "headwind_mode": "Fan mode", "fan_percent": "Fan speed",
+                    "firmware_version": "HEADWIND firmware",
+                }[key], "%" if key == "fan_percent" else None, None)
+                for key in new
+            ])
+
+    add_for_machine()
+    entry.async_on_unload(coord.async_add_listener(add_for_machine))
