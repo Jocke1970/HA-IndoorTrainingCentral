@@ -40,3 +40,11 @@ assert.equal(signal("off","ready").label,"Frånkopplad");
 assert.equal(signal("unavailable","unknown").kind,"unknown");
 assert.equal(signal("unknown","unknown").label,"Status okänd");
 console.log("Bluetooth connection badge state tests passed");
+
+// Capture controls must be embedded in both new and legacy card constructors.
+assert.ok(code.includes("data-capture-action=\\\"start\\\""), "start button missing");
+assert.ok(code.includes("data-capture-action=\\\"stop\\\""), "stop button missing");
+assert.ok(code.includes("data-capture-action=\\\"export\\\""), "export button missing");
+assert.ok(code.includes("homefitnesscode/protocol_capture"), "websocket capture endpoint missing");
+assert.ok(code.includes("application/x-ndjson"), "JSONL download missing");
+console.log("Protocol Capture UI smoke checks passed");

@@ -34,6 +34,7 @@ class HeadwindState(DataUpdateCoordinator[dict[str, Any]]):
         )
         self.entry = entry
         self.capture = ProtocolCapture()
+        self.gatt_inventory: list[str] = []
         self._client: BleakClient | None = None
         self._connect_lock = asyncio.Lock()
         self._command_lock = asyncio.Lock()
@@ -95,10 +96,13 @@ class HeadwindState(DataUpdateCoordinator[dict[str, Any]]):
                         firmware = bytes(raw).decode("utf-8", errors="replace").strip("\x00 ")
                     except Exception as err:
                         _LOGGER.debug("HEADWIND firmware not readable: %s", err)
+                self.gatt_inventory = [
+                    f"{service.uuid}/{characteristic.uuid}"
+                    for service in client.services
+                    for characteristic in service.characteristics
+                ]
                 self.capture.record("event", "gatt_inventory",
-                                    decoded={"characteristics": [
-                                        f"{s.uuid}/{c.uuid}" for s in client.services
-                                        for c in s.characteristics]})
+                                    decoded={"characteristics": self.gatt_inventory})
                 await client.start_notify(CONTROL, self._notify)
                 self._client = client
                 self.async_set_updated_data({

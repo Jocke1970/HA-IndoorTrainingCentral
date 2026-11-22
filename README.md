@@ -29,7 +29,7 @@ This beta is distributed as a GitHub **pre-release**, not from the development b
 1. In Home Assistant go to **Settings → Marketplace → Add from link**.
 2. Add `https://github.com/Jocke1970/HA-IndoorTrainingCentral` as an **Integration**.
 3. Open HA-IndoorTrainingCentral in Marketplace and enable **Pre-release**.
-4. Install the newest `2026.11.0bN` pre-release (currently `2026.11.0b4`), not the `main` branch.
+4. Install the newest `2026.11.0bN` pre-release (currently `2026.11.0b6`), not the `main` branch.
 5. Open **Settings → Devices & services** and configure HA-IndoorTrainingCentral.
 6. For new dashboards, register `/indoor-training-central/indoor-training-central-card.js` as a JavaScript module and add:
 
@@ -97,3 +97,20 @@ Vi behåller den detaljerade original-loggan med hanteln för större ytor. I Ho
 - HA visar bilden automatiskt från integrationens `brand/`-katalog (HA 2026.3+). Inga entitets-ID:n eller domännamn ändras.
 
 Styrketräningsikonen i huvudloggan är visuell profilering och innebär inte att någon styrketräningsutrustning är uppkopplad.
+
+
+## Protocol Capture – beta b6
+
+Protocol Capture är en manuell felsökningsfunktion per registrerad träningsmaskin eller HEADWIND. Öppna **Protocol Capture** längst ned i Lovelace-kortet. Tryck **Starta inspelning**, använd träningsmaskinen, välj **Stoppa** och därefter **Exportera JSONL**. Inspelningen fungerar även när maskinen ännu inte är ansluten, och kan fånga efterföljande anslutningar.
+
+- **FTMS:** varje mottaget FTMS-datapaket, maskinstatus och kontrollsvar. Spara både originalbytes som HEX och avkodade värden eller avkodningsfel.
+- **Tacx FE-C via BLE:** råa notifieringar från Tacx FE-C-kanalen. Vidarebefordras därefter till den befintliga `pycycling==0.4.1`-avkodaren.
+- **Wahoo HEADWIND:** inkommande notifieringar och av HA initierade utgående kommandon. Capture ändrar inte fläktläge.
+- **GATT:** inventering av anslutna tjänster/karakteristiker när sådan information finns. Den diagnostiska WP5000-profilen inventerar fortfarande GATT read-only, men prenumererar **inte** på okända tillverkarprotokoll.
+- **Gränser:** högst 10 minuter, 3 000 händelser eller 750 kB i tillfälligt HA-minne per enhet. Inspelningen stoppas vid första gränsen.
+- **Säkerhet:** avstängd vid start/omstart. Endast HA-administratörer får starta, stoppa eller exportera via autentiserat WebSocket API. Inga nya Bluetooth-styrkommandon görs.
+- **Export:** UTF-8 JSONL, en JSON-post per rad, med metadata och råa HEX-data. **Exportera innan HA/integrationen startas om** – annars försvinner bufferten. Inspelningen lagras inte i Recorder och exponeras inte i sensorns attribut.
+
+Capture kan bara observera **de notifieringar HA själv tar emot på sin aktiva BLE-anslutning**. Den kan inte passivt avlyssna Bluetooth-trafiken mellan en fysisk maskin och exempelvis MyWhoosh. ANT+ radiotrafik, fristående Bluetooth-pulsband och allmän snifferfunktion ingår inte i b6.
+
+Dokumentation och ett testexempel finns i [docs/protocol-capture.md](docs/protocol-capture.md).

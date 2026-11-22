@@ -1,11 +1,15 @@
-# HA-IndoorTrainingCentral 2026.11.0b5 (beta)
+# HA-IndoorTrainingCentral 2026.11.0b6 (beta)
 
-## Native Home Assistant icon
+## Protocol Capture – opt-in diagnostics
 
-- Add an optimized **ITC** emblem for compact UI surfaces, matching the blue and turquoise color palette of the existing four-sport main logo.
-- Ship `custom_components/homefitnesscode/brand/icon.png` (256 px) and `brand/icon@2x.png` (512 px), locally served by Home Assistant 2026.3+.
-- Keep editable `assets/branding/itc-icon.svg` in the repository.
-- No behavioral changes to Bluetooth, training targets, HEADWIND or FIT exports.
-- Preserve legacy `homefitnesscode` integration domain and existing entities.
+- Add a collapsible **Protocol Capture** section for each selected training device and standalone Wahoo HEADWIND.
+- **Starta inspelning / Stoppa / Exportera JSONL** controls use Home Assistant's authenticated, administrator-only WebSocket API.
+- Capture raw inbound FTMS characteristics (training telemetry, status, control acknowledgements), including malformed or unrecognized data as HEX with timestamps.
+- Capture raw Tacx FE-C BLE notifications *before* the existing pinned pycycling 0.4.1 parser handles them.
+- Capture incoming HEADWIND notifications and outgoing explicit command attempts; optional GATT inventory captured without new subscriptions.
+- Bounded in-memory capture per config entry: 10 minutes, 3,000 records, 750 KB; recording off by default and not resumed on restart.
+- Export JSONL to the browser for offline analysis; no persistent HA files and no payloads published in sensor state attributes.
+- New pure Python tests and dashboard smoke checks.
+- No FTMS repeater, active sniffing, ANT+ radio capture, Bluetooth-pulse-strap integration, FIT recording, or automatic exercise-machine control added.
 
-Keep b5 in beta until the icon is confirmed visible in a real HA dashboard/integration view.
+**Beta validation:** CI checks syntax and capture bounds. Hardware capture and real HA WebSocket/browser export still need testing on physical Tacx, WP5000 and HEADWIND.
