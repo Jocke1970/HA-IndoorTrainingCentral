@@ -19,7 +19,20 @@
   const invalid=s=>s==null||["unknown","unavailable","none"].includes(s);
   class Card extends HTMLElement {
     setConfig(config){this.config=config||{};this.chosen=this.config.entry_id||null;this.fanSelected=this.config.headwind_entity||null;this.signature="";this.draw();}
-    set hass(h){this.h=h;this.draw();}
+    set hass(h){
+      this.h=h;this.draw();
+      if(Date.now()-(this._lastCapturePoll||0)>5000){
+        this._lastCapturePoll=Date.now();
+        void this.refreshCapture();
+      }
+    }
+    connectedCallback(){
+      if(!this._captureTimer)this._captureTimer=setInterval(()=>this.refreshCapture(),5000);
+    }
+    disconnectedCallback(){
+      if(this._captureTimer)clearInterval(this._captureTimer);
+      this._captureTimer=null;
+    }
     getCardSize(){return 6;}
     static getStubConfig(){return {};}
     collect(){
@@ -97,6 +110,11 @@
       ".val{font-size:26px;font-weight:750;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
       ".unit{font-size:11px;color:var(--secondary-text-color)}",
       ".panel{border:1px solid var(--divider-color);padding:14px;border-radius:12px}",
+      ".capture summary{cursor:pointer;font-size:14px;font-weight:650}",
+      ".capture summary:focus-visible{outline:2px solid var(--primary-color);outline-offset:3px}",
+      ".capture-content{display:grid;gap:10px;margin-top:12px}",
+      ".capture-detail{font-size:12px;color:var(--secondary-text-color)}",
+      ".capture .actions button{flex:1 1 140px}",
       ".actions,.targetrow{display:flex;gap:8px;flex-wrap:wrap}",
       "button{font:inherit;font-size:13px;cursor:pointer;color:var(--primary-text-color);background:var(--secondary-background-color);border:1px solid var(--divider-color);border-radius:9px;padding:10px}",
       "button:disabled,input:disabled{opacity:.4;cursor:not-allowed}",
@@ -132,6 +150,13 @@
           :'<p class="fan-note">Lägg till Wahoo HEADWIND som enhet i HomeFitnessCode för gemensam visning och styrning.</p>')+
         '</section>'
       ):"";
+      const capturePanel='<details class="panel capture" data-capture><summary>🔍 Protocol Capture</summary>'+
+        '<div class="capture-content"><p class="note">Manuell rådatainspelning för analys (högst 10 minuter, 3 000 paket eller 750 kB). Ingen påverkan på maskinens styrning.</p>'+
+        '<div class="capture-detail" data-capture-status role="status" aria-live="polite">Hämtar status…</div>'+
+        '<div class="actions"><button type="button" data-capture-action="start">Starta inspelning</button>'+
+        '<button type="button" data-capture-action="stop" disabled>Stoppa</button>'+
+        '<button type="button" data-capture-action="export" disabled>Exportera JSONL</button></div>'+
+        '<p class="capture-detail">Inspelningen hålls tillfälligt i HA-minnet. Exportera innan integrationen startas om. Endast administratörer kan använda funktionen.</p></div></details>';
       const trainPanel=(type==="headwind"||type==="auto")?"":(
         '<section class="stats">'+tiles+'</section><section class="panel"><h3>Styrning</h3>'+
         '<p class="note">Manuell aktivering krävs. Ingen automatisk start efter återanslutning.</p>'+
@@ -141,7 +166,7 @@
       this.shadowRoot.innerHTML='<style>'+this.styleText()+'</style><ha-card><div class="root">'+
         '<header class="head"><div><div class="kicker">HA-INDOORTRAININGCENTRAL</div><h2>'+d.name+'</h2><div class="sub connection-status" data-info role="status" aria-live="polite"><span class="connection-dot is-unknown" data-connection-dot aria-hidden="true"></span><span data-connection-label>Status okänd</span><span class="connection-detail" data-connection-detail></span></div></div>'+
         '<select aria-label="Välj träningsmaskin">'+opt+'</select></header>'+
-        trainPanel+fanPanel+
+        trainPanel+fanPanel+capturePanel+
         '<footer class="foot"><span data-protocol>Protokoll: –</span><span data-arm>Låst</span></footer>'+
         '</div></ha-card>';
       this.shadowRoot.querySelector('select').addEventListener('change',e=>{this.chosen=e.target.value;this.signature="";this.draw();});
@@ -154,6 +179,9 @@
         if(input.value.trim()!==""&&input.checkValidity())this.fanPercent(Number(input.value));
       });
       this.shadowRoot.querySelectorAll('[data-fan-preset]').forEach(b=>b.addEventListener('click',()=>this.fanPercent(Number(b.dataset.fanPreset))));
+      this.shadowRoot.querySelectorAll('[data-capture-action]').forEach(b=>
+        b.addEventListener('click',()=>this.captureAction(b.dataset.captureAction)));
+      this.paintCapture();
       this.signature=key+':'+type+':'+Object.keys(groups).sort().join(',')+':'+Object.keys(groups[key]).sort().join(',')+':'+this.fans().map(([id])=>id).join(',');
     }
     draw(){
@@ -184,6 +212,7 @@
         b.disabled=!connected||!e||e.state==="unavailable";
       });
       this.refreshFan(type);
+      this.paintCapture();
       this.shadowRoot.querySelectorAll('[data-target]').forEach(input=>{
         const e=g["target_"+input.dataset.target];
         input.disabled=!connected||!armed||!e||e.state==="unavailable";
@@ -223,6 +252,73 @@
       speed.placeholder=value!==null&&available?String(value):"0–100";
       this.shadowRoot.querySelector('[data-fan-apply]').disabled=!available;
       this.shadowRoot.querySelectorAll('[data-fan-preset]').forEach(btn=>btn.disabled=!available);
+    }
+    paintCapture(){
+      if(!this.shadowRoot)return;
+      const statusNode=this.shadowRoot.querySelector('[data-capture-status]');
+      if(!statusNode)return;
+      const s=this._captureStates?.[this.chosen];
+      const error=this._captureErrors?.[this.chosen];
+      const busy=this._captureBusy===this.chosen;
+      if(error)statusNode.textContent="Fel: "+error;
+      else if(!s)statusNode.textContent="Hämtar status…";
+      else if(s.active)statusNode.textContent="● Spelar in · "+s.count+
+        " paket · "+Math.ceil(s.bytes/1024)+" kB · upp till "+s.seconds_remaining+" s kvar";
+      else if(s.started_at)statusNode.textContent="Stoppad ("+
+        ({manual:"manuellt",timeout:"tidsgräns",record_limit:"paketgräns",
+          byte_limit:"storleksgräns",unload:"avslutad"}[s.stop_reason]||"klar")+
+        ") · "+s.count+" paket · "+Math.ceil(s.bytes/1024)+" kB";
+      else statusNode.textContent="Ingen inspelning startad";
+      for(const action of ["start","stop","export"]){
+        const btn=this.shadowRoot.querySelector('[data-capture-action="'+action+'"]');
+        if(btn)btn.disabled=busy||(action==="start"?!!s?.active:
+          action==="stop"?!s?.active:!s?.count);
+      }
+    }
+    async refreshCapture(){
+      if(!this.h?.callWS||!this.chosen||this._captureBusy||this._capturePolling)return;
+      const key=this.chosen;
+      this._capturePolling=true;
+      try{
+        const result=await this.h.callWS({type:"homefitnesscode/protocol_capture",
+          entry_id:key,action:"status"});
+        (this._captureStates??={})[key]=result;
+        if(this._captureErrors)delete this._captureErrors[key];
+      }catch(err){
+        (this._captureErrors??={})[key]=err?.message||String(err);
+      }finally{
+        this._capturePolling=false;
+        if(this.chosen===key)this.paintCapture();
+      }
+    }
+    async captureAction(action){
+      const key=this.chosen;
+      if(!this.h?.callWS||!key||this._captureBusy)return;
+      const prev=this._captureStates?.[key];
+      if(action==="start"&&prev?.count&&!prev.active&&
+        !confirm("En ny inspelning ersätter den tidigare. Fortsätta?"))return;
+      this._captureBusy=key;
+      this.paintCapture();
+      try{
+        const result=await this.h.callWS({type:"homefitnesscode/protocol_capture",
+          entry_id:key,action});
+        (this._captureStates??={})[key]=result.status||result;
+        if(this._captureErrors)delete this._captureErrors[key];
+        if(action==="export"){
+          if(!result.jsonl)throw new Error("Det finns ingen inspelning att exportera.");
+          const blob=new Blob([result.jsonl],{type:"application/x-ndjson;charset=utf-8"});
+          const url=URL.createObjectURL(blob),a=document.createElement("a");
+          a.href=url;
+          a.download="itc-protocol-"+new Date().toISOString().replace(/[:.]/g,"-")+".jsonl";
+          document.body.appendChild(a);a.click();a.remove();
+          setTimeout(()=>URL.revokeObjectURL(url),1000);
+        }
+      }catch(err){
+        (this._captureErrors??={})[key]=err?.message||String(err);
+      }finally{
+        this._captureBusy=null;
+        if(this.chosen===key)this.paintCapture();
+      }
     }
     async fanMode(mode){
       const item=this.fanEntity(), selector=this.modeEntity(item?.[1]);
