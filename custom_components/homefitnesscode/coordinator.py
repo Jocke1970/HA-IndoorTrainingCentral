@@ -11,6 +11,7 @@ from homeassistant.config_entries import ConfigEntry
 
 from .const import CAP_DEFAULTS, DOMAIN
 from .transport import Transport
+from .capture import ProtocolCapture
 from .entity_catalog import inferred_machine
 
 _LOGGER = logging.getLogger(__name__)
@@ -21,10 +22,12 @@ class HFCState(DataUpdateCoordinator[dict[str, Any]]):
         super().__init__(hass, _LOGGER, name=f"{DOMAIN}_{entry.entry_id}",
                          update_interval=timedelta(seconds=15))
         self.entry = entry
+        self.capture = ProtocolCapture()
         initial_kind = inferred_machine(dict(entry.data), entry.title)
         self.transport = Transport(
             hass, entry.data["address"], initial_kind,
             entry.data.get("profile", "auto"), self._received, self._disconnected,
+            capture=self.capture,
         )
         self.data = {"connected": False, "armed": False, "session_status": "unknown",
                      "machine_type": initial_kind,

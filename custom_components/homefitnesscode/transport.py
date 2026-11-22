@@ -12,6 +12,7 @@ from homeassistant.components import bluetooth
 from homeassistant.core import HomeAssistant
 
 from .const import CONTROL_CHAR, DATA_CHARS, FEATURE_CHAR, RANGE_CHARS, STATUS_CHAR, TACX_RX, TACX_TX
+from .capture import ProtocolCapture
 from .profiles import make_profile
 from .protocol import encode_target, validate_reply
 
@@ -20,7 +21,8 @@ _LOGGER = logging.getLogger(__name__)
 
 class Transport:
     def __init__(self, hass: HomeAssistant, address: str, preferred: str, profile_name: str,
-                 on_data: Callable[[dict], None], on_disconnect: Callable[[], None]):
+                 on_data: Callable[[dict], None], on_disconnect: Callable[[], None],
+                 capture: ProtocolCapture | None = None):
         self.hass = hass
         self.address = address
         self.preferred = preferred
@@ -29,6 +31,8 @@ class Transport:
         self.tacx = None
         self.on_data = on_data
         self.on_disconnect = on_disconnect
+        self.capture = capture
+        self.gatt_inventory: list[str] = []
         self.client: BleakClient | None = None
         self.machine_type: str | None = None
         self.target_bits = 0
@@ -45,7 +49,15 @@ class Transport:
     def connected(self) -> bool:
         return self.client is not None and self.client.is_connected
 
+    def _capture(self, direction: str, characteristic: str, payload: bytes | bytearray | None = None,
+                 *, decoded: dict | None = None, error: str | None = None,
+                 protocol: str | None = None) -> None:
+        if self.capture is not None:
+            self.capture.record(direction, characteristic, payload, decoded=decoded,
+                                error=error, protocol=protocol)
+
     def _disconnected(self, _client: BleakClient) -> None:
+        self._capture("event", "connection", decoded={"status": "disconnected"})
         self.client = None
         self.tacx = None
         self.has_control = False
@@ -55,31 +67,43 @@ class Transport:
         self.on_disconnect()
 
     def _sample(self, _char: Any, payload: bytearray) -> None:
+        channel = DATA_CHARS.get(self.machine_type, "unknown_data")
         if self.machine_type is None:
+            self._capture("rx", channel, payload, error="machine_type_unknown")
             return
         try:
-            self.on_data(self.profile.parse(self.machine_type, bytes(payload)))
+            values = self.profile.parse(self.machine_type, bytes(payload))
         except ValueError as err:
+            self._capture("rx", channel, payload, error=str(err))
             _LOGGER.debug("Ignored malformed %s packet: %s", self.machine_type, err)
+        else:
+            self._capture("rx", channel, payload, decoded=values)
+            self.on_data(values)
 
     def _status(self, _char: Any, payload: bytearray) -> None:
-        # FTMS Fitness Machine Status: 0x01 stopped/paused, 0x02 safety key,
-        # 0x03 started/resumed. This callback NEVER initiates motor control.
+        # FTMS status notifications are observation only; never trigger motor control.
         if not payload:
+            self._capture("rx", STATUS_CHAR, payload, error="empty_status")
             return
         code = payload[0]
+        values: dict = {}
         if code == 0x01:
-            self.on_data({"session_status": "reset"})
+            values = {"session_status": "reset"}
         elif code == 0x02:
-            value = "paused" if len(payload) > 1 and payload[1] == 0x02 else "stopped"
-            self.on_data({"session_status": value})
+            values = {"session_status": "paused" if len(payload) > 1
+                      and payload[1] == 0x02 else "stopped"}
         elif code == 0x03:
             self.armed = False
-            self.on_data({"session_status": "safety_stop"})
+            values = {"session_status": "safety_stop"}
         elif code == 0x04:
-            self.on_data({"session_status": "running"})
+            values = {"session_status": "running"}
+        self._capture("rx", STATUS_CHAR, payload, decoded=values,
+                      error=None if values else f"unknown_status_opcode_{code:02x}")
+        if values:
+            self.on_data(values)
 
     def _ack(self, _char: Any, payload: bytearray) -> None:
+        self._capture("rx", CONTROL_CHAR, payload)
         if (len(payload) >= 3 and payload[0] == 0x80
                 and payload[1] == self._expected and self._waiter is not None
                 and not self._waiter.done()):
@@ -100,6 +124,11 @@ class Transport:
             )
             try:
                 services = client.services
+                self.gatt_inventory = [f"{service.uuid}/{characteristic.uuid}"
+                                       for service in services
+                                       for characteristic in service.characteristics]
+                self._capture("event", "gatt_inventory",
+                              decoded={"characteristics": self.gatt_inventory})
                 available = {kind: ch for kind, ch in DATA_CHARS.items()
                              if services.get_characteristic(ch)}
                 if (not available and services.get_characteristic(TACX_RX)
@@ -110,7 +139,9 @@ class Transport:
                     self.machine_type = "bike"
                     self.tacx.set_general_fe_data_page_handler(self._tacx_general)
                     self.tacx.set_specific_trainer_data_page_handler(self._tacx_specific)
-                    await self.tacx.enable_fec_notifications()
+                    # Single BLE subscription: capture raw FE-C frames before handing
+                    # them to pycycling 0.4.1's pinned parser.
+                    await client.start_notify(TACX_TX, self._tacx_notification)
                     self.has_control = True
                     self.armed = False
                     self.client = client
@@ -187,6 +218,18 @@ class Transport:
                 and bool(self.target_bits & (1 << TARGET_BITS[kind])))
 
 
+    def _tacx_notification(self, sender: Any, payload: bytearray) -> None:
+        self._capture("rx", TACX_TX, payload, protocol="tacx_fec")
+        if self.tacx is None:
+            return
+        try:
+            # pycycling==0.4.1; isolate its private parser dependency here.
+            self.tacx._fec_notification_handler(sender, payload)
+        except (ValueError, IndexError, KeyError, AttributeError) as err:
+            self._capture("event", "tacx_fec_parser", error=str(err),
+                          protocol="tacx_fec")
+            _LOGGER.debug("Ignored malformed Tacx FE-C packet: %s", err)
+
     def _tacx_general(self, data) -> None:
         # FE-C page 16 fields are rolling/partial; do not expose byte-sized
         # distance or elapsed values as cumulative workout totals.
@@ -212,6 +255,7 @@ class Transport:
             self._expected = payload[0]
             self._waiter = asyncio.get_running_loop().create_future()
             try:
+                self._capture("tx", CONTROL_CHAR, payload, decoded={"attempted": True})
                 await self.client.write_gatt_char(CONTROL_CHAR, payload, response=True)
                 result = await asyncio.wait_for(self._waiter, timeout=5)
                 validate_reply(result, payload[0])
@@ -234,9 +278,13 @@ class Transport:
             if not self.armed:
                 raise PermissionError("Tacx control is not armed")
             if kind == "power":
+                self._capture("event", "tacx_fec_control",
+                              decoded={"kind": "power", "target": value}, protocol="tacx_fec")
                 await self.tacx.set_target_power(int(value))
                 return
             if kind == "incline":
+                self._capture("event", "tacx_fec_control",
+                              decoded={"kind": "incline", "target": value}, protocol="tacx_fec")
                 await self.tacx.set_track_resistance(value, 0.004)
                 return
             raise ValueError("Tacx supports only power and simulated grade in this version")

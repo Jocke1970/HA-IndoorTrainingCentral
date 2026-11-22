@@ -7,6 +7,7 @@ from homeassistant.config_entries import ConfigEntry
 from .const import DOMAIN, PLATFORMS
 from .coordinator import HFCState
 from .headwind import HeadwindState
+from .ws_capture import async_register as register_protocol_capture
 from .entity_catalog import inferred_machine, registered_metrics
 from homeassistant.helpers import entity_registry as er
 import logging
@@ -21,6 +22,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         StaticPathConfig("/indoor-training-central/indoor-training-central-card.js",
                          str(Path(__file__).parent / "www" / "homefitnesscode-card.js"), False)
     ])
+    register_protocol_capture(hass)
     return True
 
 
@@ -67,5 +69,6 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if not await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
         return False
     state = hass.data[DOMAIN].pop(entry.entry_id)
+    state.capture.stop("unload")
     await state.shutdown()
     return True

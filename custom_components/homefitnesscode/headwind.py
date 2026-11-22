@@ -16,6 +16,7 @@ from bleak_retry_connector import establish_connection
 from homeassistant.components import bluetooth
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
+from .capture import ProtocolCapture
 from .headwind_protocol import CONTROL, MODES, decode_notification, mode_command, percent_command
 
 DEVICE_INFO_FW = "00002a26-0000-1000-8000-00805f9b34fb"
@@ -32,6 +33,7 @@ class HeadwindState(DataUpdateCoordinator[dict[str, Any]]):
             update_interval=timedelta(seconds=15),
         )
         self.entry = entry
+        self.capture = ProtocolCapture()
         self._client: BleakClient | None = None
         self._connect_lock = asyncio.Lock()
         self._command_lock = asyncio.Lock()
@@ -48,6 +50,7 @@ class HeadwindState(DataUpdateCoordinator[dict[str, Any]]):
         if client is not self._client:
             return
         self._client = None
+        self.capture.record("event", "connection", decoded={"status": "disconnected"})
         self.async_set_updated_data({
             **self.data, "connected": False, "headwind_mode": "unknown",
             "fan_percent": None,
@@ -55,6 +58,9 @@ class HeadwindState(DataUpdateCoordinator[dict[str, Any]]):
 
     def _notify(self, _char: Any, payload: bytearray) -> None:
         values = decode_notification(bytes(payload))
+        self.capture.record("rx", CONTROL, payload, decoded=values,
+                            error=None if values else "unrecognized_headwind_frame",
+                            protocol="wahoo_headwind_ble")
         if values:
             self.async_set_updated_data({**self.data, **values, "connected": self.connected})
 
@@ -89,6 +95,10 @@ class HeadwindState(DataUpdateCoordinator[dict[str, Any]]):
                         firmware = bytes(raw).decode("utf-8", errors="replace").strip("\x00 ")
                     except Exception as err:
                         _LOGGER.debug("HEADWIND firmware not readable: %s", err)
+                self.capture.record("event", "gatt_inventory",
+                                    decoded={"characteristics": [
+                                        f"{s.uuid}/{c.uuid}" for s in client.services
+                                        for c in s.characteristics]})
                 await client.start_notify(CONTROL, self._notify)
                 self._client = client
                 self.async_set_updated_data({
@@ -103,6 +113,8 @@ class HeadwindState(DataUpdateCoordinator[dict[str, Any]]):
         async with self._command_lock:
             if not self.connected or self._client is None:
                 raise ConnectionError("HEADWIND disconnected; no command sent")
+            self.capture.record("tx", CONTROL, command,
+                                decoded={"attempted": True}, protocol="wahoo_headwind_ble")
             await self._client.write_gatt_char(CONTROL, command, response=True)
             # BLE write acknowledgement is not fan-state feedback.
             # Keep state from notifications, never publish an assumed speed.
@@ -119,12 +131,14 @@ class HeadwindState(DataUpdateCoordinator[dict[str, Any]]):
             async with self._command_lock:
                 if not self.connected or self._client is None:
                     raise ConnectionError("HEADWIND disconnected")
-                await self._client.write_gatt_char(
-                    CONTROL, mode_command("manual"), response=True
-                )
-                await self._client.write_gatt_char(
-                    CONTROL, percent_command(percentage), response=True
-                )
+                manual = mode_command("manual")
+                speed = percent_command(percentage)
+                self.capture.record("tx", CONTROL, manual,
+                                    decoded={"attempted": True}, protocol="wahoo_headwind_ble")
+                await self._client.write_gatt_char(CONTROL, manual, response=True)
+                self.capture.record("tx", CONTROL, speed,
+                                    decoded={"attempted": True}, protocol="wahoo_headwind_ble")
+                await self._client.write_gatt_char(CONTROL, speed, response=True)
 
     async def shutdown(self) -> None:
         async with self._connect_lock:
