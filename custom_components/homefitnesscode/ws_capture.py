@@ -1,7 +1,7 @@
 """Administrator-only websocket commands for opt-in protocol capture."""
 from __future__ import annotations
 
-import voluptuous as vol
+import probatio
 from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant, callback
 
@@ -10,9 +10,9 @@ from .const import DOMAIN
 
 @websocket_api.require_admin
 @websocket_api.websocket_command({
-    vol.Required("type"): "homefitnesscode/protocol_capture",
-    vol.Required("entry_id"): str,
-    vol.Required("action"): vol.In(("status", "start", "stop", "export")),
+    probatio.Required("type"): "homefitnesscode/protocol_capture",
+    probatio.Required("entry_id"): str,
+    probatio.Required("action"): str,
 })
 @callback
 def ws_protocol_capture(
@@ -28,6 +28,10 @@ def ws_protocol_capture(
         return
     capture = state.capture
     action = msg["action"]
+    if action not in ("status", "start", "stop", "export"):
+        connection.send_error(msg["id"], websocket_api.ERR_INVALID_FORMAT,
+                              "Invalid protocol capture action")
+        return
     if action == "start":
         status = capture.start(
             profile=str(state.data.get("protocol") or state.entry.data.get("profile", "auto")),
