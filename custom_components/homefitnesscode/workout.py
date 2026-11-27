@@ -93,8 +93,10 @@ def replay_session(path: Path) -> dict | None:
         "started_at": started.get("timestamp"),
         "ended_at": finished.get("timestamp") if finished else last_positive_time,
         "reason": finished.get("reason") if finished else "interrupted",
-        "complete": finished is not None,
+        "complete": finished is not None and finished.get("reason") in ("stopped", "manual"),
         "distance_km": round(maxima.get("distance_km", 0), 3),
+        "average_speed_kmh": round(maxima.get("distance_km", 0) * 3600 / elapsed, 2)
+        if elapsed > 0 else 0,
         "elapsed_s": round(elapsed),
         "energy_kcal": round(maxima.get("energy_kcal", 0), 1),
         "max_speed_kmh": round(maxima.get("speed_kmh", 0), 2),

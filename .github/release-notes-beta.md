@@ -1,15 +1,15 @@
-# HA-IndoorTrainingCentral 2026.11.0b6 (beta)
+# HA-IndoorTrainingCentral 2026.11.0b7 (beta)
 
-## Protocol Capture – opt-in diagnostics
+## Persist treadmill workouts from raw FTMS notifications
 
-- Add a collapsible **Protocol Capture** section for each selected training device and standalone Wahoo HEADWIND.
-- **Starta inspelning / Stoppa / Exportera JSONL** controls use Home Assistant's authenticated, administrator-only WebSocket API.
-- Capture raw inbound FTMS characteristics (training telemetry, status, control acknowledgements), including malformed or unrecognized data as HEX with timestamps.
-- Capture raw Tacx FE-C BLE notifications *before* the existing pinned pycycling 0.4.1 parser handles them.
-- Capture incoming HEADWIND notifications and outgoing explicit command attempts; optional GATT inventory captured without new subscriptions.
-- Bounded in-memory capture per config entry: 10 minutes, 3,000 records, 750 KB; recording off by default and not resumed on restart.
-- Export JSONL to the browser for offline analysis; no persistent HA files and no payloads published in sensor state attributes.
-- New pure Python tests and dashboard smoke checks.
-- No FTMS repeater, active sniffing, ANT+ radio capture, Bluetooth-pulse-strap integration, FIT recording, or automatic exercise-machine control added.
+- Automatically start a treadmill workout journal when actual belt speed exceeds 0.2 km/h; no HA machine-control commands.
+- Store received raw FTMS payloads, timestamps, decoded fields and protocol information in append-only JSONL inside /config/homefitnesscode/sessions/<entry_id>/.
+- Replay the raw file to derive a persisted per-session .summary.json; preserve peak elapsed time, distance and calories even when the treadmill resets them at stop.
+- Close after approximately 15 seconds idle; allow explicit "Avsluta och spara pass" from the Lovelace card, independent of motor stop.
+- Show a live session and recent saved sessions in a new "Träningspass" expander.
+- Recover raw recordings after interrupted HA shutdown; classify interrupted/limited sessions separately.
+- Bound single-session raw storage to 6 hours or 30 MB. No automated file deletion in this beta.
+- Keep diagnostic Protocol Capture and direct Bluetooth control behavior unchanged.
+- Add async journal/replay tests, including sensor reset, manual save, interruption recovery and phantom-session prevention.
 
-**Beta validation:** CI checks syntax and capture bounds. Hardware capture and real HA WebSocket/browser export still need testing on physical Tacx, WP5000 and HEADWIND.
+**Scope:** FTMS treadmills only. Other machines, FIT export, multi-sensor session fusion and FTMS repeaters are not included. Hardware testing in HA is still required.

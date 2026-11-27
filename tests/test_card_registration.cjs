@@ -48,3 +48,8 @@ assert.ok(code.includes('data-capture-action="export"'), "export button missing"
 assert.ok(code.includes("homefitnesscode/protocol_capture"), "websocket capture endpoint missing");
 assert.ok(code.includes("application/x-ndjson"), "JSONL download missing");
 console.log("Protocol Capture UI smoke checks passed");
+
+
+assert.ok(code.includes("homefitnesscode/workouts"), "Workout API missing from dashboard");
+assert.ok(code.includes("data-workout-save"), "Manual workout save button missing");
+assert.ok(code.includes("workout-history"), "Saved workouts section missing");

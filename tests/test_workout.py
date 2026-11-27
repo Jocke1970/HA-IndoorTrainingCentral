@@ -108,3 +108,32 @@ async def test_interrupted_recovery_from_raw(tmp_path):
     assert j.history[0]["reason"] == "interrupted"
     assert j.history[0]["distance_km"] == 0.5
     await j.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_manual_save_while_belt_moving_does_not_create_new_session(tmp_path):
+    j = m.WorkoutJournal(tmp_path, "id", "Q5")
+    await j.async_prepare()
+    send(j, speed=1)
+    j.close("manual")
+    send(j, speed=2)
+    assert j.active is False
+    send(j, speed=0)
+    send(j, speed=1.5)
+    assert j.active is True
+    j.close("manual")
+    await j.shutdown()
+    assert len(j.history) == 2
+
+
+@pytest.mark.asyncio
+async def test_stationary_elapsed_increasing_does_not_keep_workout_alive(tmp_path):
+    j = m.WorkoutJournal(tmp_path, "id", "Q5")
+    await j.async_prepare()
+    with patch.object(m.time, "monotonic", side_effect=[100, 100, 100, 101, 101, 117, 117]):
+        send(j, speed=1, sec=2)
+        send(j, speed=0, sec=10)
+        j.tick()
+    assert j.active is False
+    await j.shutdown()
+    assert j.history[0]["reason"] == "stopped"

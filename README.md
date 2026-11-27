@@ -29,7 +29,7 @@ This beta is distributed as a GitHub **pre-release**, not from the development b
 1. In Home Assistant go to **Settings → Marketplace → Add from link**.
 2. Add `https://github.com/Jocke1970/HA-IndoorTrainingCentral` as an **Integration**.
 3. Open HA-IndoorTrainingCentral in Marketplace and enable **Pre-release**.
-4. Install the newest `2026.11.0bN` pre-release (currently `2026.11.0b6`), not the `main` branch.
+4. Install the newest `2026.11.0bN` pre-release (currently `2026.11.0b7`), not the `main` branch.
 5. Open **Settings → Devices & services** and configure HA-IndoorTrainingCentral.
 6. For new dashboards, register `/indoor-training-central/indoor-training-central-card.js` as a JavaScript module and add:
 
@@ -114,3 +114,20 @@ Protocol Capture är en manuell felsökningsfunktion per registrerad träningsma
 Capture kan bara observera **de notifieringar HA själv tar emot på sin aktiva BLE-anslutning**. Den kan inte passivt avlyssna Bluetooth-trafiken mellan en fysisk maskin och exempelvis MyWhoosh. ANT+ radiotrafik, fristående Bluetooth-pulsband och allmän snifferfunktion ingår inte i b6.
 
 Dokumentation och ett testexempel finns i [docs/protocol-capture.md](docs/protocol-capture.md).
+
+
+## Treadmill workout journaling (beta b7)
+
+En ny automatisk **Träningspass**-expander i löpbandets kort sparar råa mottagna FTMS-meddelanden och härleder passinformation genom att läsa tillbaka råfilen. Det är **separat från Protocol Capture**: du behöver inte starta en diagnostikinspelning före varje promenad. Ingen styrning av löpbandet krävs.
+
+- Lagring: `/config/homefitnesscode/sessions/<config_entry_id>/` på HA-servern (inte under `custom_components`, och inte i HA:s rotkatalog).
+- `YYYYMMDDTHHMMSSZ-<id>.jsonl`: ett tidsstämplat FTMS-meddelande per rad (HEX + avkodade värden). Alla notifieringar som **HA faktiskt tar emot under passet** sparas, inklusive eventuella FTMS-statusmeddelanden.
+- `YYYYMMDDTHHMMSSZ-<id>.summary.json`: passets beräknade slutvärden (tid, distans, högsta hastighet/lutning, kalorier, datapaket), **återskapade från JSONL-filen**.
+- Inspelningen startar automatiskt när bandets rapporterade hastighet överstiger 0,2 km/h och stoppas efter ungefär 15 sekunders inaktivitet. Ett stopp eller en nollställning av löpbandets räknare raderar inte passets tidigare maxvärden.
+- Du kan även välja **Avsluta och spara pass**, vilket enbart avslutar datainsamlingen. Det skickar **inga stopp- eller hastighetskommandon** till maskinen.
+- Vid förlorad Bluetooth-anslutning eller omstart sparas tillgängliga rådata. En passfil utan avslutningspost återskapas vid nästa HA-start och märks som **avbruten**, så den inte misstas för ett fullständigt pass.
+- Gränser: högst 6 timmar eller 30 MB rådata per pass. Filer raderas inte automatiskt i b7; följ därför lagringsutrymmet vid frekventa eller längre träningspass.
+- Funktionen gäller **endast FTMS-löpband** i b7. Bike/rower och FIT-export kommer senare, efter verklig testning.
+- Säkerhet: passhistorik och manuell passavslutning nås via inloggad administratörs-WebSocket i HA. Råfilerna stannar på din HA-server tills du själv hämtar eller raderar dem.
+
+Se [docs/workout-journal.md](docs/workout-journal.md) för testförfarande och filformat.
