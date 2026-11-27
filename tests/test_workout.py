@@ -130,7 +130,7 @@ async def test_manual_save_while_belt_moving_does_not_create_new_session(tmp_pat
 async def test_stationary_elapsed_increasing_does_not_keep_workout_alive(tmp_path):
     j = m.WorkoutJournal(tmp_path, "id", "Q5")
     await j.async_prepare()
-    with patch.object(m.time, "monotonic", side_effect=[100, 100, 100, 101, 101, 117, 117]):
+    with patch.object(m.time, "monotonic", side_effect=[100, 101, 117]):
         send(j, speed=1, sec=2)
         send(j, speed=0, sec=10)
         j.tick()
