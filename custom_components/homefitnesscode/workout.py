@@ -152,6 +152,7 @@ class WorkoutJournal:
         self._last_elapsed = 0.0
         self._last_dist = 0.0
         self._maxima: dict[str, float] = {}
+        self._await_stationary = False
         self._bytes_queued = 0
         self._preroll = deque(maxlen=PRE_ROLL_FRAMES)
         self._queue: asyncio.Queue[tuple[Path, dict] | None] = asyncio.Queue(maxsize=MAX_QUEUE)
@@ -246,8 +247,11 @@ class WorkoutJournal:
         speed = float(values.get("speed_kmh") or 0) if is_treadmill else 0
         if not self.active:
             self._preroll.append(frame)
-            # Do not start a phantom session just because device reports old time/distance.
-            if is_treadmill and speed > 0.2:
+            if is_treadmill and speed <= 0.2:
+                self._await_stationary = False
+            # Only physical movement starts a pass. Manual stop must not
+            # instantly create another session while belt is still moving.
+            if is_treadmill and speed > 0.2 and not self._await_stationary:
                 self._start(now, timestamp)
             return
         if self.path is None:
@@ -262,7 +266,9 @@ class WorkoutJournal:
                     self._maxima[key] = max(self._maxima.get(key, 0), float(v))
             elapsed = float(values.get("elapsed_s") or 0)
             distance = float(values.get("distance_km") or 0)
-            if speed > 0.2 or elapsed > self._last_elapsed or distance > self._last_dist:
+            # Elapsed time can continue increasing when a belt is stationary:
+            # do not confuse that with actual treadmill movement.
+            if speed > 0.2 or distance > self._last_dist:
                 self._last_moving = now
             self._last_elapsed = max(elapsed, self._last_elapsed)
             self._last_dist = max(distance, self._last_dist)
@@ -282,6 +288,7 @@ class WorkoutJournal:
             return
         self.active = False
         self.finalizing = True
+        self._await_stationary = reason in ("manual", "size_limit", "duration_limit")
         if self.path is None:
             return
         path = self.path
