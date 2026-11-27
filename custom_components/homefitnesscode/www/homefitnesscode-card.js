@@ -265,7 +265,7 @@
       this.shadowRoot.querySelector('[data-workout-save]')?.addEventListener('click',()=>this.saveWorkout());
       this.paintCapture();
       this.paintWorkout();
-      this.signature=key+':'+type+':'+Object.keys(groups).sort().join(',')+':'+Object.keys(groups[key]).sort().join(',')+':'+this.fans().map(([id])=>id).join(',');
+      this.signature=key+':'+type+':'+this.visibleDeviceIds(groups).join(',')+':'+Object.keys(groups[key]).sort().join(',')+':'+this.fans().map(([id])=>id).join(',');
     }
     draw(){
       if(!this.h)return;
