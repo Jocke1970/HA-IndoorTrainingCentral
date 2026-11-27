@@ -85,6 +85,32 @@
       if(connected==="off")return {kind:"disconnected",label:"Frånkopplad",detail:""};
       return {kind:"unknown",label:"Status okänd",detail:""};
     }
+    deviceName(group){
+      return Object.values(group||{}).find(s=>s.attributes?.hfc_device_name)?.attributes?.hfc_device_name||"Okänd enhet";
+    }
+    deviceType(group){
+      const raw=this.value(group,"machine_type");
+      if(raw&&raw!=="auto"&&defs[raw])return raw;
+      const name=this.deviceName(group).toUpperCase();
+      if(group?.headwind_fan||name.includes("HEADWIND"))return "headwind";
+      if(name.includes("TACX")||name.includes("FLUX"))return "bike";
+      if(name.includes("WP5000")||name.includes("RODD"))return "rower";
+      if(name.includes("Q5-")||name.includes("LÖPBAND")||
+          name.includes("TREADMILL")||name.includes("WALKING PAD"))return "treadmill";
+      return "auto";
+    }
+    visibleDeviceIds(groups){
+      const keys=Object.keys(groups);
+      const fitness=keys.filter(id=>this.deviceType(groups[id])!=="headwind");
+      // Existing dedicated HEADWIND dashboards remain selectable.
+      const standalone=this.config?.entry_id&&groups[this.config.entry_id]&&
+        this.deviceType(groups[this.config.entry_id])==="headwind";
+      const chosen=fitness.length&&!standalone?fitness:keys;
+      const rank={treadmill:0,bike:1,rower:2,auto:3,headwind:4};
+      return chosen.sort((a,b)=>
+        (rank[this.deviceType(groups[a])]??9)-(rank[this.deviceType(groups[b])]??9)||
+        this.deviceName(groups[a]).localeCompare(this.deviceName(groups[b]),"sv"));
+    }
     display(group,key){
       const raw=this.value(group,key);
       if(raw===null)return "–";
@@ -101,6 +127,17 @@
       "ha-card{border-radius:16px;overflow:hidden}",
       ".root{padding:20px;display:grid;gap:14px}",
       ".head{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}",
+      ".device-nav{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,145px),1fr));gap:9px}",
+      ".device-tab{display:flex;align-items:flex-start;gap:9px;text-align:left;min-width:0;padding:12px;border:1px solid var(--divider-color);border-radius:11px;background:var(--card-background-color);transition:border-color .15s,background .15s}",
+      ".device-tab.is-selected{border:2px solid var(--primary-color);padding:11px;background:color-mix(in srgb,var(--primary-color) 7%,var(--card-background-color))}",
+      ".device-tab:focus-visible{outline:2px solid var(--primary-color);outline-offset:2px}",
+      ".device-tab-icon{font-size:20px;line-height:1.2;flex:0 0 24px}",
+      ".device-tab-body{display:grid;gap:3px;min-width:0;flex:1}",
+      ".device-tab-title{font-size:13px;font-weight:700;line-height:1.3}",
+      ".device-tab-name{font-size:11px;color:var(--secondary-text-color);overflow-wrap:anywhere;line-height:1.25}",
+      ".device-tab-status{display:flex;gap:5px;align-items:center;font-size:11px;color:var(--secondary-text-color);line-height:1.3;flex-wrap:wrap}",
+      ".device-tab-status .connection-dot{width:8px;height:8px;flex-basis:8px}",
+      ".device-tab-status-text{flex:1;min-width:0}",
       ".kicker{font-weight:750;letter-spacing:.06em;font-size:11px;color:var(--secondary-text-color)}",
       "h2{margin:3px 0;font-size:23px}h3{margin:0 0 8px;font-size:16px}",
       ".sub,.foot{font-size:12px;color:var(--secondary-text-color)}",
@@ -140,11 +177,26 @@
       ".fan-percent{font-size:23px;font-weight:750}",
       ".fan-line select{max-width:210px;flex:1 1 150px}",
       ".fan-note{font-size:12px;color:var(--secondary-text-color);margin:4px 0}",
-      "@container (max-width:540px){.root{padding:12px}.head{display:grid;gap:10px}.head select{width:100%;max-width:100%}.stats{grid-template-columns:repeat(2,minmax(0,1fr))}.val{font-size:22px}.controls{grid-template-columns:1fr}.actions button{flex:1}}"
+      "@container (max-width:540px){.root{padding:12px}.head{display:grid;gap:10px}.device-nav{grid-template-columns:repeat(2,minmax(0,1fr))}.device-tab{padding:10px;gap:6px}.device-tab.is-selected{padding:9px}.device-tab-icon{font-size:18px;flex-basis:20px}.stats{grid-template-columns:repeat(2,minmax(0,1fr))}.val{font-size:22px}.controls{grid-template-columns:1fr}.actions button{flex:1}}",
+      "@container (max-width:300px){.device-nav{grid-template-columns:1fr}}"
     ].join("");}
     shell(key,type,groups){
       const d=defs[type]||defs.auto;
-      const opt=Object.keys(groups).sort().map(id=>'<option value="'+esc(id)+'"'+(id===key?' selected':'')+'>'+esc(Object.values(groups[id]).find(x=>x.attributes?.hfc_device_name)?.attributes?.hfc_device_name||id)+'</option>').join("");
+      const icons={treadmill:"🏃",bike:"🚴",rower:"🚣",auto:"🏋️",headwind:"💨"};
+      const tabs=this.visibleDeviceIds(groups).map(id=>{
+        const group=groups[id],kind=this.deviceType(group),conn=this.connectionStatus(group);
+        const title=defs[kind]?.name||defs.auto.name;
+        return '<button type="button" class="device-tab'+(id===key?' is-selected':'')+
+          '" data-device-key="'+esc(id)+'" aria-pressed="'+(id===key?'true':'false')+
+          '" aria-label="'+esc(title+": "+this.deviceName(group)+", "+conn.label+(conn.detail?", "+conn.detail:""))+'">'+
+          '<span class="device-tab-icon" aria-hidden="true">'+icons[kind]+'</span>'+
+          '<span class="device-tab-body"><span class="device-tab-title">'+esc(title)+'</span>'+
+          '<span class="device-tab-name">'+esc(this.deviceName(group))+'</span>'+
+          '<span class="device-tab-status"><span class="connection-dot is-'+conn.kind+
+          '" aria-hidden="true"></span><span class="device-tab-status-text">'+
+          esc(conn.label+(conn.detail?" · "+conn.detail:""))+
+          '</span></span></span></button>';
+      }).join("");
       const tiles=d.metrics.map(m=>'<div class="tile"><div class="label">'+esc(label[m]||m)+'</div><div class="val" data-metric="'+m+'">–</div><div class="unit">'+esc(units[m]||"")+'</div></div>').join("");
       const targets=d.targets.filter(m=>groups[key]?.["target_"+m]).map(m=>'<label class="target">'+esc(label[m])+'<span class="targetrow"><input type="number" inputmode="decimal" data-target="'+m+'"/><button type="button" data-set="'+m+'">Ställ in</button></span></label>').join("");
       const actions=['arm',...(type==='treadmill'?['start','pause','stop']:[])].filter(a=>groups[key]?.[a]).map(a=>
@@ -184,12 +236,20 @@
         '<div class="message" aria-live="polite"></div></section>'
       );
       this.shadowRoot.innerHTML='<style>'+this.styleText()+'</style><ha-card><div class="root">'+
-        '<header class="head"><div><div class="kicker">HA-INDOORTRAININGCENTRAL</div><h2>'+d.name+'</h2><div class="sub connection-status" data-info role="status" aria-live="polite"><span class="connection-dot is-unknown" data-connection-dot aria-hidden="true"></span><span data-connection-label>Status okänd</span><span class="connection-detail" data-connection-detail></span></div></div>'+
-        '<select aria-label="Välj träningsmaskin">'+opt+'</select></header>'+
+        '<header class="head"><div><div class="kicker">HA-INDOORTRAININGCENTRAL</div><h2>'+d.name+'</h2></div></header>'+
+        '<nav class="device-nav" aria-label="Välj träningsmaskin">'+tabs+'</nav>'+
         trainPanel+fanPanel+workoutPanel+capturePanel+
         '<footer class="foot"><span data-protocol>Protokoll: –</span><span data-arm>Låst</span></footer>'+
         '</div></ha-card>';
-      this.shadowRoot.querySelector('select').addEventListener('change',e=>{this.chosen=e.target.value;this.signature="";this.draw();});
+      this.shadowRoot.querySelectorAll('[data-device-key]').forEach(button=>button.addEventListener('click',()=>{
+        const id=button.dataset.deviceKey;
+        if(!groups[id]||id===this.chosen)return;
+        this.chosen=id;
+        this.signature="";
+        this.draw();
+        void this.refreshWorkout();
+        void this.refreshCapture();
+      }));
       this.shadowRoot.querySelectorAll('[data-action]').forEach(b=>b.addEventListener('click',()=>this.action(b.dataset.action)));
       this.shadowRoot.querySelectorAll('[data-set]').forEach(b=>b.addEventListener('click',()=>this.setTarget(b.dataset.set)));
       this.shadowRoot.querySelector('[data-fan-choice]')?.addEventListener('change',e=>{this.fanSelected=e.target.value;this.signature="";this.draw();});
@@ -209,23 +269,27 @@
     draw(){
       if(!this.h)return;
       if(!this.shadowRoot)this.attachShadow({mode:"open"});
-      const groups=this.collect(),ids=Object.keys(groups).sort();
+      const groups=this.collect(),ids=this.visibleDeviceIds(groups);
       if(!ids.length){this.shadowRoot.innerHTML='<ha-card><div style="padding:22px">Inga maskiner registrerade. Konfigurera HA-IndoorTrainingCentral först.</div></ha-card>';this.signature="";return;}
       const key=ids.includes(this.chosen)?this.chosen:ids[0];this.chosen=key;
       const g=groups[key];
-      const rawType=this.value(g,"machine_type");
-      const name=(g.connected?.attributes?.hfc_device_name||g.protocol?.attributes?.hfc_device_name||"").toUpperCase();
-      const type=defs[rawType]?rawType:(g.headwind_fan?"headwind":
-        name.includes("TACX")||name.includes("FLUX")?"bike":
-        name.includes("WP5000")?"rower":"auto");
+      const type=this.deviceType(g);
       if(this.signature!==key+':'+type+':'+ids.join(',')+':'+Object.keys(g).sort().join(',')+':'+this.fans().map(([id])=>id).join(','))this.shell(key,type,groups);
       const connection=this.connectionStatus(g);
       const connected=connection.kind==="connected",armed=this.value(g,"armed")==="on";
-      this.shadowRoot.querySelector('[data-connection-label]').textContent=connection.label;
-      this.shadowRoot.querySelector('[data-connection-detail]').textContent=
-        type==="headwind"?"":connection.detail;
-      this.shadowRoot.querySelector('[data-connection-dot]').className=
-        "connection-dot is-"+connection.kind;
+      for(const button of this.shadowRoot.querySelectorAll('[data-device-key]')){
+        const group=groups[button.dataset.deviceKey];
+        if(!group)continue;
+        const status=this.connectionStatus(group);
+        button.classList.toggle("is-selected",button.dataset.deviceKey===key);
+        button.setAttribute("aria-pressed",button.dataset.deviceKey===key?"true":"false");
+        button.setAttribute("aria-label", (defs[this.deviceType(group)]?.name||defs.auto.name)+
+          ": "+this.deviceName(group)+", "+status.label+
+          (status.detail?", "+status.detail:""));
+        button.querySelector(".connection-dot").className="connection-dot is-"+status.kind;
+        button.querySelector(".device-tab-status-text").textContent=
+          status.label+(status.detail?" · "+status.detail:"");
+      }
       this.shadowRoot.querySelector('[data-protocol]').textContent="Protokoll: "+(this.value(g,"protocol")||"–");
       this.shadowRoot.querySelector('[data-arm]').textContent=type==="headwind"?"Fläktstyrning separat":(armed?"Styrning aktiverad":"Styrning låst");
       this.shadowRoot.querySelectorAll('[data-metric]').forEach(el=>el.textContent=this.display(g,el.dataset.metric));
