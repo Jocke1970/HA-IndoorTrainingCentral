@@ -8,6 +8,7 @@ from .const import DOMAIN, PLATFORMS
 from .coordinator import HFCState
 from .headwind import HeadwindState
 from .ws_capture import async_register as register_protocol_capture
+from .ws_workout import async_register as register_workout_api
 from .entity_catalog import inferred_machine, registered_metrics
 from homeassistant.helpers import entity_registry as er
 import logging
@@ -23,6 +24,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
                          str(Path(__file__).parent / "www" / "homefitnesscode-card.js"), False)
     ])
     register_protocol_capture(hass)
+    register_workout_api(hass)
     return True
 
 
@@ -38,6 +40,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
              if entry.data.get('profile') == 'wahoo_headwind'
              else HFCState(hass, entry))
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = state
+    if isinstance(state, HFCState):
+        await state.workouts.async_prepare()
     await state.async_config_entry_first_refresh()
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 

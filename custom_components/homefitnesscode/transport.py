@@ -22,7 +22,8 @@ _LOGGER = logging.getLogger(__name__)
 class Transport:
     def __init__(self, hass: HomeAssistant, address: str, preferred: str, profile_name: str,
                  on_data: Callable[[dict], None], on_disconnect: Callable[[], None],
-                 capture: ProtocolCapture | None = None):
+                 capture: ProtocolCapture | None = None,
+                 on_frame: Callable[..., None] | None = None):
         self.hass = hass
         self.address = address
         self.preferred = preferred
@@ -32,6 +33,7 @@ class Transport:
         self.on_data = on_data
         self.on_disconnect = on_disconnect
         self.capture = capture
+        self.on_frame = on_frame
         self.gatt_inventory: list[str] = []
         self.client: BleakClient | None = None
         self.machine_type: str | None = None
@@ -55,6 +57,9 @@ class Transport:
         if self.capture is not None:
             self.capture.record(direction, characteristic, payload, decoded=decoded,
                                 error=error, protocol=protocol)
+        if self.on_frame is not None:
+            self.on_frame(direction, characteristic, payload, decoded=decoded,
+                          error=error, protocol=protocol)
 
     def _disconnected(self, _client: BleakClient) -> None:
         self._capture("event", "connection", decoded={"status": "disconnected"})
