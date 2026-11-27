@@ -119,6 +119,33 @@
         (rank[this.deviceType(groups[a])]??9)-(rank[this.deviceType(groups[b])]??9)||
         this.deviceName(groups[a]).localeCompare(this.deviceName(groups[b]),"sv"));
     }
+    quickTarget(group,kind,direction){
+      // Test controls work on an empty/stationary treadmill too.
+      // Arming and supported FTMS target entities remain mandatory.
+      if(this.deviceType(group)!=="treadmill"||this.value(group,"connected")!=="on"||
+          this.value(group,"armed")!=="on"||
+          !["speed","incline"].includes(kind)||![1,-1].includes(direction)||
+          ["safety_stop"].includes(this.value(group,"session_status")))return null;
+      const entity=group["target_"+kind];
+      const sensor=group[kind==="speed"?"speed_kmh":"incline_percent"];
+      if(!entity||invalid(entity.state)||!sensor||invalid(sensor.state))return null;
+      const current=Number(sensor.state);
+      const min=Number(entity.attributes?.min), max=Number(entity.attributes?.max);
+      const resolution=Number(entity.attributes?.step);
+      const delta=kind==="speed"?0.1:1;
+      if(![current,min,max,resolution].every(Number.isFinite)||
+          min>max||resolution<=0||resolution>delta+1e-6)return null;
+      // For example Q5 can advertise a minimum nonzero treadmill speed.
+      // First + from zero must choose that legal minimum, not 0.1 km/h.
+      const raw=direction>0?Math.max(current+delta,min):Math.min(current-delta,max);
+      if(raw<min-1e-6||raw>max+1e-6)return null;
+      const ticks=direction>0?Math.ceil((raw-min)/resolution-1e-6):
+        Math.floor((raw-min)/resolution+1e-6);
+      const next=Number((min+ticks*resolution).toFixed(4));
+      if(next<min-1e-6||next>max+1e-6||
+          (direction>0?next<=current+1e-6:next>=current-1e-6))return null;
+      return {value:next,entity_id:entity.id};
+    }
     display(group,key){
       const raw=this.value(group,key);
       if(raw===null)return "–";
@@ -184,6 +211,19 @@
       ".controls{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:12px;margin-top:15px}",
       ".target{display:grid;gap:6px;font-size:12px}",
       ".targetrow input{flex:1 1 100px;width:80px;min-width:0}",
+      ".ftms-test{display:grid;gap:12px;margin-top:12px}",
+      ".ftms-transport{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}",
+      ".ftms-transport button{min-width:0;min-height:44px;font-weight:650}",
+      ".ftms-step-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}",
+      ".ftms-step-box{border:1px solid var(--divider-color);border-radius:11px;padding:12px;display:grid;gap:8px;min-width:0}",
+      ".ftms-step-title{font-size:13px;font-weight:650}",
+      ".ftms-step-values{font-size:12px;color:var(--secondary-text-color)}",
+      ".ftms-step-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}",
+      ".ftms-step-actions button{font-size:17px;font-weight:750;min-width:0;min-height:48px}",
+      ".ftms-step-box [data-step-value]{font-size:17px;font-weight:700;color:var(--primary-text-color)}",
+      ".ftms-advanced{margin-top:5px;border-top:1px solid var(--divider-color);padding-top:10px}",
+      ".ftms-advanced summary{cursor:pointer;font-size:12px;font-weight:650}",
+      ".ftms-note{font-size:12px;color:var(--secondary-text-color)}",
       ".note,.message{margin:8px 0;font-size:12px;color:var(--secondary-text-color)}",
       ".foot{display:flex;justify-content:space-between;gap:12px}",
       ".fan-line{display:flex;align-items:center;gap:12px;flex-wrap:wrap}",
@@ -191,7 +231,8 @@
       ".fan-line select{max-width:210px;flex:1 1 150px}",
       ".fan-note{font-size:12px;color:var(--secondary-text-color);margin:4px 0}",
       "@container (max-width:540px){.root{padding:12px}.head{display:grid;gap:10px}.device-nav{grid-template-columns:repeat(2,minmax(0,1fr))}.device-tab{padding:10px;gap:6px}.device-tab.is-selected{padding:9px}.device-tab-icon{font-size:18px;flex-basis:20px}.stats{grid-template-columns:repeat(2,minmax(0,1fr))}.val{font-size:22px}.controls{grid-template-columns:1fr}.actions button{flex:1}}",
-      "@container (max-width:300px){.device-nav{grid-template-columns:1fr}}"
+      "@container (max-width:400px){.ftms-step-grid{grid-template-columns:1fr}}",
+      "@container (max-width:300px){.device-nav{grid-template-columns:1fr}.ftms-transport{grid-template-columns:1fr}}"
     ].join("");}
     shell(key,type,groups){
       const d=defs[type]||defs.auto;
@@ -213,8 +254,25 @@
       }).join("");
       const tiles=d.metrics.map(m=>'<div class="tile"><div class="label">'+esc(label[m]||m)+'</div><div class="val" data-metric="'+m+'">–</div><div class="unit">'+esc(units[m]||"")+'</div></div>').join("");
       const targets=d.targets.filter(m=>groups[key]?.["target_"+m]).map(m=>'<label class="target">'+esc(label[m])+'<span class="targetrow"><input type="number" inputmode="decimal" data-target="'+m+'"/><button type="button" data-set="'+m+'">Ställ in</button></span></label>').join("");
-      const actions=['arm',...(type==='treadmill'?['start','pause','stop']:[])].filter(a=>groups[key]?.[a]).map(a=>
+      const actions=['arm',...(type==='treadmill'?[]:[])].filter(a=>groups[key]?.[a]).map(a=>
         '<button type="button" data-action="'+a+'" '+(a==='stop'?'class="danger"':'')+'>'+({arm:type==="bike"?"Aktivera trainerstyrning":"Aktivera styrning",start:"Start",pause:"Paus",stop:"Stopp"}[a])+'</button>').join("");
+      const ftmsTest=type==="treadmill"?(
+        '<div class="ftms-test"><div class="ftms-transport">'+
+        '<button type="button" data-action="start" data-ftms-transport>▶ Start</button>'+
+        '<button type="button" data-action="pause" data-ftms-transport>Ⅱ Paus</button>'+
+        '<button type="button" class="danger" data-action="stop" data-ftms-transport>■ Stopp</button></div>'+
+        '<div class="ftms-step-grid">'+
+        '<div class="ftms-step-box"><div class="ftms-step-title">Hastighet</div>'+
+        '<div class="ftms-step-values"><span data-step-value="speed">–</span> km/h · ± 0,1 km/h</div>'+
+        '<div class="ftms-step-actions"><button type="button" data-step-kind="speed" data-step-direction="-1" disabled aria-label="Minska hastighet med 0,1 km/h">−</button>'+
+        '<button type="button" data-step-kind="speed" data-step-direction="1" disabled aria-label="Öka hastighet med 0,1 km/h">+</button></div></div>'+
+        '<div class="ftms-step-box"><div class="ftms-step-title">Lutning</div>'+
+        '<div class="ftms-step-values"><span data-step-value="incline">–</span> % · ± 1 procentenhet</div>'+
+        '<div class="ftms-step-actions"><button type="button" data-step-kind="incline" data-step-direction="-1" disabled aria-label="Minska lutningen med 1 procentenhet">−</button>'+
+        '<button type="button" data-step-kind="incline" data-step-direction="1" disabled aria-label="Öka lutningen med 1 procentenhet">+</button></div></div></div>'+
+        '<p class="ftms-note">Testa med TOMT löpband. Styrning aktiveras manuellt och återställs vid frånkoppling. En hastighetsändring kan starta bandet även från stillastående. Säkerhetsnyckeln är nödstoppet; Bluetooth-stopp är det inte.</p>'+
+        '<details class="ftms-advanced"><summary>Avancerat · exakta FTMS-målvärden</summary>'+
+        '<div class="controls">'+targets+'</div></details></div>'):"";
       const fanChoices=this.fans();
       const fanOptions=fanChoices.map(([id,s])=>'<option value="'+esc(id)+'"'+(this.fanSelected===id?' selected':'')+'>'+esc(s.attributes?.friendly_name||id)+'</option>').join("");
       const fanPanel=(type==="bike"||type==="headwind")?(
@@ -246,7 +304,8 @@
       const trainPanel=(type==="headwind"||type==="auto")?"":(
         '<section class="stats">'+tiles+'</section><section class="panel"><h3>Styrning</h3>'+
         '<p class="note">Manuell aktivering krävs. Ingen automatisk start efter återanslutning.</p>'+
-        '<div class="actions">'+actions+'</div><div class="controls">'+targets+'</div>'+
+        '<div class="actions">'+actions+'</div>'+
+        (type==="treadmill"?ftmsTest:'<div class="controls">'+targets+'</div>')+
         '<div class="message" aria-live="polite"></div></section>'
       );
       this.shadowRoot.innerHTML='<style>'+this.styleText()+'</style><ha-card><div class="root">'+
@@ -268,6 +327,8 @@
       }));
       this.shadowRoot.querySelectorAll('[data-action]').forEach(b=>b.addEventListener('click',()=>this.action(b.dataset.action)));
       this.shadowRoot.querySelectorAll('[data-set]').forEach(b=>b.addEventListener('click',()=>this.setTarget(b.dataset.set)));
+      this.shadowRoot.querySelectorAll('[data-step-kind]').forEach(b=>
+        b.addEventListener('click',()=>this.incrementTarget(b.dataset.stepKind,Number(b.dataset.stepDirection))));
       this.shadowRoot.querySelector('[data-fan-choice]')?.addEventListener('change',e=>{this.fanSelected=e.target.value;this.signature="";this.draw();});
       this.shadowRoot.querySelector('[data-fan-mode]')?.addEventListener('change',e=>this.fanMode(e.target.value));
       this.shadowRoot.querySelector('[data-fan-apply]')?.addEventListener('click',()=>{
@@ -313,7 +374,16 @@
       this.shadowRoot.querySelectorAll('[data-metric]').forEach(el=>el.textContent=this.display(g,el.dataset.metric));
       this.shadowRoot.querySelectorAll('[data-action]').forEach(b=>{
         const e=g[b.dataset.action];
-        b.disabled=!connected||!e||e.state==="unavailable";
+        b.disabled=!connected||!e||e.state==="unavailable"||
+          (b.dataset.action!=="arm"&&!armed);
+      });
+      this.shadowRoot.querySelectorAll('[data-step-value]').forEach(el=>
+        el.textContent=this.display(g,el.dataset.stepValue==="speed"?"speed_kmh":"incline_percent"));
+      this.shadowRoot.querySelectorAll('[data-step-kind]').forEach(button=>{
+        const cmd=this.quickTarget(g,button.dataset.stepKind,Number(button.dataset.stepDirection));
+        button.disabled=!cmd||!!this._stepBusy;
+        button.title=cmd?"Målvärde: "+cmd.value+(button.dataset.stepKind==="speed"?" km/h":" %"):
+          "Styrning måste vara aktiv och värdet inom maskinens FTMS-gränser.";
       });
       this.refreshFan(type);
       this.paintCapture();
@@ -508,8 +578,30 @@
     async action(name){
       const g=this.collect()[this.chosen],entry=g?.[name];
       if(!entry||entry.state==="unavailable")return;
-      if(name==="start"&&!confirm("Starta löpbandet? Säkerställ att området är fritt och säkerhetsnyckeln fungerar."))return;
+      if(name==="start"&&!confirm("FTMS-test: starta löpbandet? Låt bandet vara TOMT, kontrollera fri yta och att säkerhetsnyckeln finns inom räckhåll."))return;
       await this.call("button","press",{entity_id:entry.id});
+    }
+    async incrementTarget(kind,direction){
+      if(this._stepBusy||!this.h?.callService)return;
+      const key=this.chosen;
+      const group=this.collect()[key];
+      const command=this.quickTarget(group,kind,direction);
+      if(!command){this.message("Ingen giltig FTMS-ändring möjlig just nu.");return;}
+      if(kind==="speed"&&!confirm("FTMS-test: sätt hastigheten till "+
+        command.value.toLocaleString("sv-SE")+" km/h? Bandet kan börja röra sig även om det står still. Låt det vara TOMT och ha säkerhetsnyckeln tillgänglig."))return;
+      this._stepBusy=true;
+      this.draw();
+      try{
+        await this.h.callService("number","set_value",{
+          entity_id:command.entity_id,value:command.value});
+        this.message("FTMS-målvärde skickat: "+command.value.toLocaleString("sv-SE")+
+          (kind==="speed"?" km/h":" %")+". Kontrollera faktiskt värde på maskinen.");
+      }catch(err){
+        this.message("FTMS-kommandot misslyckades: "+(err?.message||err));
+      }finally{
+        this._stepBusy=false;
+        if(this.chosen===key)this.draw();
+      }
     }
     async setTarget(kind){
       const g=this.collect()[this.chosen],entry=g?.["target_"+kind],el=this.shadowRoot.querySelector('[data-target="'+kind+'"]');
