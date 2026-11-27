@@ -14,6 +14,7 @@ from .transport import Transport
 from .capture import ProtocolCapture
 from .workout import WorkoutJournal
 from .entity_catalog import inferred_machine
+from .activity import observed_session_status
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -38,10 +39,14 @@ class HFCState(DataUpdateCoordinator[dict[str, Any]]):
         self.targets: dict[str, float] = {}
 
     def _received(self, values: dict[str, Any]) -> None:
+        machine = self.transport.machine_type or self.data["machine_type"]
+        status = observed_session_status(
+            machine, self.data.get("session_status", "unknown"), values
+        )
         self.async_set_updated_data({
             **self.data, **values, "connected": self.transport.connected,
-            "armed": self.transport.armed,
-            "machine_type": self.transport.machine_type or self.data["machine_type"],
+            "armed": self.transport.armed, "machine_type": machine,
+            "session_status": status,
         })
 
     def _disconnected(self) -> None:

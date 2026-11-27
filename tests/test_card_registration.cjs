@@ -85,3 +85,23 @@ assert.ok(code.includes("device-tab-status-text"),"Status must appear in device 
 assert.ok(!code.includes('<select aria-label="Välj träningsmaskin">'),
   "Old training-equipment selector should be removed");
 console.log("Device tile navigation and connection status checks passed");
+
+
+// Q5 reports movement in treadmill-data notifications, not a FTMS running status.
+const movingQ5=connectedGroup("Q5-6Y 73A9","treadmill","on","ready");
+movingQ5.speed_kmh={state:"3.5"};
+assert.equal(view.moving(movingQ5),true);
+assert.equal(view.connectionStatus(movingQ5).detail,"Pass pågår");
+movingQ5.speed_kmh={state:"0"};
+assert.equal(view.moving(movingQ5),false);
+assert.equal(view.connectionStatus(movingQ5).detail,"Redo");
+movingQ5.speed_kmh={state:"unavailable"};
+assert.equal(view.moving(movingQ5),false);
+movingQ5.connected.state="off";
+movingQ5.speed_kmh={state:"4.0"};
+assert.equal(view.moving(movingQ5),false);
+assert.equal(view.connectionStatus(movingQ5).kind,"disconnected");
+assert.ok(code.includes("data-machine-runner"),"Animated treadmill header runner missing");
+assert.ok(code.includes("prefers-reduced-motion"),"Reduced-motion support missing");
+assert.ok(code.includes("itc-run"),"Running CSS keyframes missing");
+console.log("Treadmill running animation and status fallback tests passed");

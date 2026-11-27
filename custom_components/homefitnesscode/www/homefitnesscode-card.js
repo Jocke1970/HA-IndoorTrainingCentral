@@ -72,10 +72,17 @@
         s.attributes?.hfc_key===key&&s.attributes?.hfc_metric==="headwind_mode_select")||null;
     }
     value(group,key){const s=group[key]?.state;return invalid(s)?null:s;}
+    moving(group){
+      if(this.deviceType(group)!=="treadmill"||this.value(group,"connected")!=="on")return false;
+      const speed=Number(this.value(group,"speed_kmh"));
+      return Number.isFinite(speed)&&speed>0.2;
+    }
     connectionStatus(group){
       const connected=this.value(group,"connected");
       if(connected==="on"){
-        const status=this.value(group,"session_status");
+        // Q5 sends treadmill speed but does not always send FTMS status.
+        // Display observed movement immediately even if backend status is stale.
+        const status=this.moving(group)?"running":this.value(group,"session_status");
         const descriptions={ready:"Redo",running:"Pass pågår",paused:"Pausad",
           stopped:"Stoppad",safety_stop:"Säkerhetsstopp",diagnostic:"Diagnostik",
           disconnected:"",unknown:"",reset:"Återställd"};
@@ -141,6 +148,11 @@
       ".device-tab-status-text{flex:1;min-width:0}",
       ".kicker{font-weight:750;letter-spacing:.06em;font-size:11px;color:var(--secondary-text-color)}",
       "h2{margin:3px 0;font-size:23px}h3{margin:0 0 8px;font-size:16px}",
+      ".machine-heading{display:flex;align-items:center;gap:8px}",
+      ".machine-runner{display:inline-block;font-size:21px;line-height:1;transform-origin:center}",
+      ".machine-runner.is-moving,.device-tab-icon.is-moving{animation:itc-run .42s ease-in-out infinite alternate}",
+      "@keyframes itc-run{0%{transform:translateY(1px) rotate(-9deg)}100%{transform:translateY(-3px) rotate(9deg)}}",
+      "@media (prefers-reduced-motion:reduce){.machine-runner.is-moving,.device-tab-icon.is-moving{animation:none}}",
       ".sub,.foot{font-size:12px;color:var(--secondary-text-color)}",
       ".connection-status{display:inline-flex;align-items:center;gap:7px;flex-wrap:wrap}",
       ".connection-dot{width:9px;height:9px;display:inline-block;flex:0 0 9px;border-radius:50%;background:var(--secondary-text-color);opacity:.8}",
@@ -190,7 +202,8 @@
         return '<button type="button" class="device-tab'+(id===key?' is-selected':'')+
           '" data-device-key="'+esc(id)+'" aria-pressed="'+(id===key?'true':'false')+
           '" aria-label="'+esc(title+": "+this.deviceName(group)+", "+conn.label+(conn.detail?", "+conn.detail:""))+'">'+
-          '<span class="device-tab-icon" aria-hidden="true">'+icons[kind]+'</span>'+
+          '<span class="device-tab-icon'+(this.moving(group)?' is-moving':'')+
+          '" aria-hidden="true">'+icons[kind]+'</span>'+
           '<span class="device-tab-body"><span class="device-tab-title">'+esc(title)+'</span>'+
           '<span class="device-tab-name">'+esc(this.deviceName(group))+'</span>'+
           '<span class="device-tab-status"><span class="connection-dot is-'+conn.kind+
@@ -237,7 +250,9 @@
         '<div class="message" aria-live="polite"></div></section>'
       );
       this.shadowRoot.innerHTML='<style>'+this.styleText()+'</style><ha-card><div class="root">'+
-        '<header class="head"><div><div class="kicker">HA-INDOORTRAININGCENTRAL</div><h2>'+d.name+'</h2></div></header>'+
+        '<header class="head"><div><div class="kicker">HA-INDOORTRAININGCENTRAL</div>'+
+        '<h2 class="machine-heading">'+(type==="treadmill"?'<span class="machine-runner" data-machine-runner aria-hidden="true">🏃</span>':"")+
+        esc(d.name)+'</h2></div></header>'+
         '<nav class="device-nav" aria-label="Välj träningsmaskin">'+tabs+'</nav>'+
         trainPanel+fanPanel+workoutPanel+capturePanel+
         '<footer class="foot"><span data-protocol>Protokoll: –</span><span data-arm>Låst</span></footer>'+
@@ -288,9 +303,11 @@
           ": "+this.deviceName(group)+", "+status.label+
           (status.detail?", "+status.detail:""));
         button.querySelector(".connection-dot").className="connection-dot is-"+status.kind;
+        button.querySelector(".device-tab-icon")?.classList.toggle("is-moving",this.moving(group));
         button.querySelector(".device-tab-status-text").textContent=
           status.label+(status.detail?" · "+status.detail:"");
       }
+      this.shadowRoot.querySelector('[data-machine-runner]')?.classList.toggle("is-moving",this.moving(g));
       this.shadowRoot.querySelector('[data-protocol]').textContent="Protokoll: "+(this.value(g,"protocol")||"–");
       this.shadowRoot.querySelector('[data-arm]').textContent=type==="headwind"?"Fläktstyrning separat":(armed?"Styrning aktiverad":"Styrning låst");
       this.shadowRoot.querySelectorAll('[data-metric]').forEach(el=>el.textContent=this.display(g,el.dataset.metric));

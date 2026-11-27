@@ -29,7 +29,7 @@ This beta is distributed as a GitHub **pre-release**, not from the development b
 1. In Home Assistant go to **Settings → Marketplace → Add from link**.
 2. Add `https://github.com/Jocke1970/HA-IndoorTrainingCentral` as an **Integration**.
 3. Open HA-IndoorTrainingCentral in Marketplace and enable **Pre-release**.
-4. Install the newest `2026.11.0bN` pre-release (currently `2026.11.0b8`), not the `main` branch.
+4. Install the newest `2026.11.0bN` pre-release (currently `2026.11.0b9`), not the `main` branch.
 5. Open **Settings → Devices & services** and configure HA-IndoorTrainingCentral.
 6. For new dashboards, register `/indoor-training-central/indoor-training-central-card.js` as a JavaScript module and add:
 
@@ -141,3 +141,11 @@ Se [docs/workout-journal.md](docs/workout-journal.md) för testförfarande och f
 - HEADWIND remains available as a companion within the bike controls, not as a fourth training machine. A dedicated HEADWIND card configured with `entry_id` remains supported, and the fan is shown when it is the only equipment.
 - Existing Protocol Capture and treadmill workout history remain accessible from the selected machine.
 - Responsive layout: 2 columns on narrow screens and 1 on exceptionally narrow ones.
+
+
+## Q5 observed running status and animated runner (beta b9)
+
+- Infer treadmill workout state directly from valid FTMS speed samples: over 0.2 km/h shows **Pass pågår**; when speed returns to zero after running, status becomes **Stoppad**. Initial idle connection remains **Redo**.
+- The inference updates the real `Workout status` sensor, not just the Lovelace card. Explicit safety-stop events are preserved.
+- Animate the running-person icon in the treadmill header and device tile **only while speed is positive and the treadmill is connected**. The animation stops when the belt stops or HA loses connection.
+- Respect the browser's reduced-motion preference. Bike/rower/HEADWIND and machine-control behavior are unchanged.
