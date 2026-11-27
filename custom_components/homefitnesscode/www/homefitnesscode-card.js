@@ -25,9 +25,16 @@
         this._lastCapturePoll=Date.now();
         void this.refreshCapture();
       }
+      if(Date.now()-(this._lastWorkoutPoll||0)>5000){
+        this._lastWorkoutPoll=Date.now();
+        void this.refreshWorkout();
+      }
     }
     connectedCallback(){
-      if(!this._captureTimer)this._captureTimer=setInterval(()=>this.refreshCapture(),5000);
+      if(!this._captureTimer)this._captureTimer=setInterval(()=>{
+        void this.refreshCapture();
+        void this.refreshWorkout();
+      },5000);
     }
     disconnectedCallback(){
       if(this._captureTimer)clearInterval(this._captureTimer);
@@ -110,7 +117,12 @@
       ".val{font-size:26px;font-weight:750;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
       ".unit{font-size:11px;color:var(--secondary-text-color)}",
       ".panel{border:1px solid var(--divider-color);padding:14px;border-radius:12px}",
-      ".capture summary{cursor:pointer;font-size:14px;font-weight:650}",
+      ".capture summary,.workout summary{cursor:pointer;font-size:14px;font-weight:650}",
+      ".workout-content{display:grid;gap:12px;margin-top:12px}",
+      ".workout-history{display:grid;gap:8px}",
+      ".workout-row{border:1px solid var(--divider-color);border-radius:8px;padding:10px;font-size:12px}",
+      ".workout-row strong{display:block;font-size:13px;margin-bottom:3px}",
+      ".workout-note{font-size:12px;color:var(--secondary-text-color);overflow-wrap:anywhere}",
       ".capture summary:focus-visible{outline:2px solid var(--primary-color);outline-offset:3px}",
       ".capture-content{display:grid;gap:10px;margin-top:12px}",
       ".capture-detail{font-size:12px;color:var(--secondary-text-color)}",
@@ -150,6 +162,14 @@
           :'<p class="fan-note">Lägg till Wahoo HEADWIND som enhet i HomeFitnessCode för gemensam visning och styrning.</p>')+
         '</section>'
       ):"";
+      const workoutPanel=type==="treadmill"?
+        '<details class="panel workout" data-workout><summary>🏃 Träningspass</summary>'+
+        '<div class="workout-content"><div class="workout-note" data-workout-status>Hämtar passinformation…</div>'+
+        '<div class="actions"><button type="button" data-workout-save disabled>Avsluta och spara pass</button></div>'+
+        '<div class="workout-history" data-workout-history></div>'+
+        '<div class="workout-note" data-workout-path></div>'+
+        '<p class="workout-note">Automatisk inspelning när bandet börjar röra sig. Rå FTMS-data sparas som JSONL på HA-servern, och slutvärden beräknas från filen. Du behöver inte aktivera Protocol Capture.</p>'+
+        '</div></details>':"";
       const capturePanel='<details class="panel capture" data-capture><summary>🔍 Protocol Capture</summary>'+
         '<div class="capture-content"><p class="note">Manuell rådatainspelning för analys (högst 10 minuter, 3 000 paket eller 750 kB). Ingen påverkan på maskinens styrning.</p>'+
         '<div class="capture-detail" data-capture-status role="status" aria-live="polite">Hämtar status…</div>'+
@@ -166,7 +186,7 @@
       this.shadowRoot.innerHTML='<style>'+this.styleText()+'</style><ha-card><div class="root">'+
         '<header class="head"><div><div class="kicker">HA-INDOORTRAININGCENTRAL</div><h2>'+d.name+'</h2><div class="sub connection-status" data-info role="status" aria-live="polite"><span class="connection-dot is-unknown" data-connection-dot aria-hidden="true"></span><span data-connection-label>Status okänd</span><span class="connection-detail" data-connection-detail></span></div></div>'+
         '<select aria-label="Välj träningsmaskin">'+opt+'</select></header>'+
-        trainPanel+fanPanel+capturePanel+
+        trainPanel+fanPanel+workoutPanel+capturePanel+
         '<footer class="foot"><span data-protocol>Protokoll: –</span><span data-arm>Låst</span></footer>'+
         '</div></ha-card>';
       this.shadowRoot.querySelector('select').addEventListener('change',e=>{this.chosen=e.target.value;this.signature="";this.draw();});
@@ -181,7 +201,9 @@
       this.shadowRoot.querySelectorAll('[data-fan-preset]').forEach(b=>b.addEventListener('click',()=>this.fanPercent(Number(b.dataset.fanPreset))));
       this.shadowRoot.querySelectorAll('[data-capture-action]').forEach(b=>
         b.addEventListener('click',()=>this.captureAction(b.dataset.captureAction)));
+      this.shadowRoot.querySelector('[data-workout-save]')?.addEventListener('click',()=>this.saveWorkout());
       this.paintCapture();
+      this.paintWorkout();
       this.signature=key+':'+type+':'+Object.keys(groups).sort().join(',')+':'+Object.keys(groups[key]).sort().join(',')+':'+this.fans().map(([id])=>id).join(',');
     }
     draw(){
@@ -213,6 +235,7 @@
       });
       this.refreshFan(type);
       this.paintCapture();
+      this.paintWorkout();
       this.shadowRoot.querySelectorAll('[data-target]').forEach(input=>{
         const e=g["target_"+input.dataset.target];
         input.disabled=!connected||!armed||!e||e.state==="unavailable";
@@ -252,6 +275,75 @@
       speed.placeholder=value!==null&&available?String(value):"0–100";
       this.shadowRoot.querySelector('[data-fan-apply]').disabled=!available;
       this.shadowRoot.querySelectorAll('[data-fan-preset]').forEach(btn=>btn.disabled=!available);
+    }
+    paintWorkout(){
+      const node=this.shadowRoot?.querySelector('[data-workout-status]');
+      if(!node)return;
+      const s=this._workoutStates?.[this.chosen];
+      const err=this._workoutErrors?.[this.chosen];
+      const busy=this._workoutBusy===this.chosen;
+      if(err)node.textContent="Fel vid passhämtning: "+err;
+      else if(!s)node.textContent="Hämtar passinformation…";
+      else if(s.active)node.textContent="● Spelar in · "+s.elapsed_s+
+        " s · "+Number(s.distance_km||0).toLocaleString("sv-SE",{maximumFractionDigits:3})+
+        " km · cirka "+Math.ceil((s.raw_bytes||0)/1024)+" kB rådata";
+      else if(s.saving)node.textContent="Sparar pass och läser tillbaka rådata…";
+      else node.textContent="Redo. Inspelning startar automatiskt när löpbandet rör sig.";
+      const btn=this.shadowRoot.querySelector('[data-workout-save]');
+      if(btn)btn.disabled=busy||!s?.active;
+      const history=this.shadowRoot.querySelector('[data-workout-history]');
+      if(history){
+        const sessions=s?.recent||[];
+        history.innerHTML=sessions.length?sessions.slice(0,5).map(x=>{
+          const date=x.started_at?new Date(x.started_at).toLocaleString("sv-SE"):"Okänt datum";
+          const seconds=Math.max(0,Math.round(Number(x.elapsed_s)||0));
+          const duration=[Math.floor(seconds/3600),Math.floor((seconds%3600)/60),
+            seconds%60].map(n=>String(n).padStart(2,"0")).join(":");
+          const distance=Number(x.distance_km||0).toLocaleString("sv-SE",
+            {minimumFractionDigits:2,maximumFractionDigits:3});
+          return '<div class="workout-row"><strong>'+esc(date)+
+            (x.complete?' · Sparat':' · Återställt efter avbrott')+'</strong>'+
+            esc(duration)+' · '+esc(distance)+' km · '+esc(x.energy_kcal||0)+
+            ' kcal · '+esc(x.raw_frames||0)+' datapaket</div>';
+        }).join(""):'<div class="workout-note">Inga sparade pass ännu.</div>';
+      }
+      const path=this.shadowRoot.querySelector('[data-workout-path]');
+      if(path)path.textContent=s?.storage_directory?
+        'Lagring på HA: '+s.storage_directory+' (rådata .jsonl + .summary.json)':'';
+    }
+    async refreshWorkout(){
+      if(!this.h?.callWS||!this.chosen||this._workoutBusy||this._workoutPolling)return;
+      const key=this.chosen;
+      this._workoutPolling=true;
+      try{
+        const result=await this.h.callWS({type:"homefitnesscode/workouts",
+          entry_id:key,action:"status"});
+        (this._workoutStates??={})[key]=result;
+        if(this._workoutErrors)delete this._workoutErrors[key];
+      }catch(err){
+        (this._workoutErrors??={})[key]=err?.message||String(err);
+      }finally{
+        this._workoutPolling=false;
+        if(this.chosen===key)this.paintWorkout();
+      }
+    }
+    async saveWorkout(){
+      const key=this.chosen;
+      if(!this.h?.callWS||!key||this._workoutBusy||!this._workoutStates?.[key]?.active)return;
+      if(!confirm("Avsluta inspelningen och spara passet från rådata? Löpbandet fortsätter köras tills du stoppar det på konsolen."))return;
+      this._workoutBusy=key;
+      this.paintWorkout();
+      try{
+        const result=await this.h.callWS({type:"homefitnesscode/workouts",
+          entry_id:key,action:"save"});
+        (this._workoutStates??={})[key]=result;
+        if(this._workoutErrors)delete this._workoutErrors[key];
+      }catch(err){
+        (this._workoutErrors??={})[key]=err?.message||String(err);
+      }finally{
+        this._workoutBusy=null;
+        if(this.chosen===key)this.paintWorkout();
+      }
     }
     paintCapture(){
       if(!this.shadowRoot)return;
