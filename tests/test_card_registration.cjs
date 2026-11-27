@@ -137,7 +137,7 @@ assert.equal(view.quickTarget(controlledTreadmill,"speed",1),null);
 controlledTreadmill.armed.state="on";
 controlledTreadmill.connected.state="off";
 assert.equal(view.quickTarget(controlledTreadmill,"speed",1),null);
-assert.ok(code.includes("± 0,5 km/h"),"Speed step label must be half a km/h");
+assert.ok(code.includes("Steg: 0,5 km/h"),"Speed step label must be half a km/h");
 assert.ok(code.includes("Starta bandet först"),"Live movement lock instructions missing");
 console.log("FTMS safety gates and 0.5 km/h steps passed");
 
