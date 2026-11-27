@@ -105,7 +105,8 @@
       // Existing dedicated HEADWIND dashboards remain selectable.
       const standalone=this.config?.entry_id&&groups[this.config.entry_id]&&
         this.deviceType(groups[this.config.entry_id])==="headwind";
-      const chosen=fitness.length&&!standalone?fitness:keys;
+      if(standalone)return [this.config.entry_id];
+      const chosen=fitness.length?fitness:keys;
       const rank={treadmill:0,bike:1,rower:2,auto:3,headwind:4};
       return chosen.sort((a,b)=>
         (rank[this.deviceType(groups[a])]??9)-(rank[this.deviceType(groups[b])]??9)||

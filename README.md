@@ -29,7 +29,7 @@ This beta is distributed as a GitHub **pre-release**, not from the development b
 1. In Home Assistant go to **Settings → Marketplace → Add from link**.
 2. Add `https://github.com/Jocke1970/HA-IndoorTrainingCentral` as an **Integration**.
 3. Open HA-IndoorTrainingCentral in Marketplace and enable **Pre-release**.
-4. Install the newest `2026.11.0bN` pre-release (currently `2026.11.0b7`), not the `main` branch.
+4. Install the newest `2026.11.0bN` pre-release (currently `2026.11.0b8`), not the `main` branch.
 5. Open **Settings → Devices & services** and configure HA-IndoorTrainingCentral.
 6. For new dashboards, register `/indoor-training-central/indoor-training-central-card.js` as a JavaScript module and add:
 
@@ -131,3 +131,13 @@ En ny automatisk **Träningspass**-expander i löpbandets kort sparar råa motta
 - Säkerhet: passhistorik och manuell passavslutning nås via inloggad administratörs-WebSocket i HA. Råfilerna stannar på din HA-server tills du själv hämtar eller raderar dem.
 
 Se [docs/workout-journal.md](docs/workout-journal.md) för testförfarande och filformat.
+
+
+## Equipment tabs with live connection status (beta b8)
+
+- Replaced the training-device dropdown with a responsive button per machine; each tile displays machine category, actual device name, and a live green/grey/amber Bluetooth dot plus text (**Ansluten · Redo**, **Frånkopplad**, or **Status okänd**).
+- The active device is highlighted, including accessible `aria-pressed` state. Clicking a tile changes the selected view without starting or controlling any equipment.
+- Fallback to the advertised equipment name when a disconnected machine still reports `machine_type=auto`, including Q5, Tacx FLUX and WP5000.
+- HEADWIND remains available as a companion within the bike controls, not as a fourth training machine. A dedicated HEADWIND card configured with `entry_id` remains supported, and the fan is shown when it is the only equipment.
+- Existing Protocol Capture and treadmill workout history remain accessible from the selected machine.
+- Responsive layout: 2 columns on narrow screens and 1 on exceptionally narrow ones.

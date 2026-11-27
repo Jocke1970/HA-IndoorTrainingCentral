@@ -1,15 +1,14 @@
-# HA-IndoorTrainingCentral 2026.11.0b7 (beta)
+# HA-IndoorTrainingCentral 2026.11.0b8 (beta)
 
-## Persist treadmill workouts from raw FTMS notifications
+## Equipment selection via live-status tiles
 
-- Automatically start a treadmill workout journal when actual belt speed exceeds 0.2 km/h; no HA machine-control commands.
-- Store received raw FTMS payloads, timestamps, decoded fields and protocol information in append-only JSONL inside /config/homefitnesscode/sessions/<entry_id>/.
-- Replay the raw file to derive a persisted per-session .summary.json; preserve peak elapsed time, distance and calories even when the treadmill resets them at stop.
-- Close after approximately 15 seconds idle; allow explicit "Avsluta och spara pass" from the Lovelace card, independent of motor stop.
-- Show a live session and recent saved sessions in a new "Träningspass" expander.
-- Recover raw recordings after interrupted HA shutdown; classify interrupted/limited sessions separately.
-- Bound single-session raw storage to 6 hours or 30 MB. No automated file deletion in this beta.
-- Keep diagnostic Protocol Capture and direct Bluetooth control behavior unchanged.
-- Add async journal/replay tests, including sensor reset, manual save, interruption recovery and phantom-session prevention.
+- Replace the machine-selection dropdown with clear per-device buttons for treadmill, bike trainer and rower.
+- Show a live colored dot and Bluetooth state text inside **each** tile, plus the session state when available.
+- Highlight the selected machine, preserve existing entity IDs/card URLs, and update connection status on every HA state refresh without re-rendering the rest of the dashboard.
+- Keep Wahoo HEADWIND in the bike's accessory panel. Standalone HEADWIND card views still work.
+- Responsive tile grid for narrow Home Assistant dashboard columns.
+- Add Node.js smoke tests for equipment classification, fan filtering, selection, and status text.
 
-**Scope:** FTMS treadmills only. Other machines, FIT export, multi-sensor session fusion and FTMS repeaters are not included. Hardware testing in HA is still required.
+**No changes to Bluetooth connections, trainer control, Protocol Capture, treadmill raw-data journaling or session storage.**
+
+Hardware/UI appearance still needs verification on the installed Home Assistant dashboard.

@@ -53,3 +53,35 @@ console.log("Protocol Capture UI smoke checks passed");
 assert.ok(code.includes("homefitnesscode/workouts"), "Workout API missing from dashboard");
 assert.ok(code.includes("data-workout-save"), "Manual workout save button missing");
 assert.ok(code.includes("workout-history"), "Saved workouts section missing");
+
+// Navigation uses one button per exercise device and live connection status.
+// HEADWIND remains a companion, except for an explicitly dedicated fan card.
+const connectedGroup=(name,kind,connected,status)=>({
+  connected:{state:connected,attributes:{hfc_device_name:name}},
+  machine_type:{state:kind},session_status:{state:status}
+});
+const treadmill=connectedGroup("Q5-6Y 73A9","treadmill","on","ready");
+const bike=connectedGroup("Tacx FLUX S","bike","off","disconnected");
+const rower=connectedGroup("WP5000","rower","unavailable","unknown");
+const fan=connectedGroup("HEADWIND 7185","headwind","on","ready");
+assert.equal(view.deviceName(treadmill),"Q5-6Y 73A9");
+assert.equal(view.deviceType(treadmill),"treadmill");
+assert.equal(view.deviceType(connectedGroup("Q5-6Y 73A9","auto","off","unknown")),"treadmill");
+assert.equal(view.deviceType(connectedGroup("Tacx FLUX S","auto","off","unknown")),"bike");
+assert.equal(view.deviceType(connectedGroup("WP5000","auto","off","unknown")),"rower");
+assert.equal(JSON.stringify(view.visibleDeviceIds({fan,bike,rower,treadmill})),
+  JSON.stringify(["treadmill","bike","rower"]));
+view.config={entry_id:"fan"};
+assert.equal(JSON.stringify(view.visibleDeviceIds({fan,bike,rower,treadmill})),
+  JSON.stringify(["fan"]));
+view.config={};
+assert.equal(JSON.stringify(view.visibleDeviceIds({fan})),JSON.stringify(["fan"]));
+assert.equal(view.connectionStatus(treadmill).label,"Ansluten");
+assert.equal(view.connectionStatus(bike).label,"Frånkopplad");
+assert.equal(view.connectionStatus(rower).label,"Status okänd");
+assert.ok(code.includes('data-device-key'),"Device tabs are missing");
+assert.ok(code.includes("aria-pressed"),"Device selection should be accessible");
+assert.ok(code.includes("device-tab-status-text"),"Status must appear in device buttons");
+assert.ok(!code.includes('<select aria-label="Välj träningsmaskin">'),
+  "Old training-equipment selector should be removed");
+console.log("Device tile navigation and connection status checks passed");
