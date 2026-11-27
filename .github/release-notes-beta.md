@@ -1,12 +1,12 @@
-# HA-IndoorTrainingCentral 2026.11.0b9 (beta)
+# HA-IndoorTrainingCentral 2026.11.0b10 (beta)
 
-## Animated treadmill runner and correct live workout state
+## FTMS treadmill control test buttons
 
-- Add a small animated running figure next to the treadmill heading and animate the treadmill navigation icon only while Q5 reports speed over 0.2 km/h.
-- Use FTMS treadmill speed to update the backend **Workout status** entity: Ready -> Running -> Stopped. This fixes the Q5 displaying "Redo" during a walk because it does not transmit FTMS status on every start.
-- Keep explicit FTMS safety-stop status authoritative and preserve status semantics for bikes, rowers, and HEADWIND.
-- Include a defensive UI fallback for Q5 live speed, tests for connected/disconnected/idle/moving states, and reduced-motion accessibility.
+- Added dedicated treadmill UI: FTMS Start, Pause, Stop, ±0.5 km/h speed and ±1 percentage-point incline buttons.
+- Speed and incline test buttons **stay locked until the treadmill is started and FTMS telemetry confirms the belt is moving** (>0.2 km/h). This is safe to try with an EMPTY treadmill and avoids starting the motor via a target-speed step.
+- Start requires an explicit confirmation; Stop stays available once control is armed, independently of speed telemetry. Stop over BLE is not an emergency stop.
+- Button commands reuse the established FTMS request-control, acknowledged write, range validation and HA number/button entities. No manufacturer-specific protocol or new Bluetooth connection is involved.
+- Advanced exact numeric FTMS targets remain available while the belt is moving.
+- Added JS smoke tests for stopped/moving, connection, arming, speed step and limits.
 
-**No changes to Bluetooth connection management, motor controls, raw session journaling, or saved workouts.**
-
-Hardware check: verify runner moves and "Pass pågår" is shown when Q5 belt runs, then animation stops after speed returns to zero.
+**Physical hardware validation remains required.** In particular, if Q5 accepts an FTMS Start command without actually spinning the motor, speed/incline buttons intentionally remain locked until movement is reported. Use physical safety key and keep belt clear.

@@ -120,19 +120,19 @@
         this.deviceName(groups[a]).localeCompare(this.deviceName(groups[b]),"sv"));
     }
     quickTarget(group,kind,direction){
-      // Test controls work on an empty/stationary treadmill too.
-      // Arming and supported FTMS target entities remain mandatory.
+      // Test controls can be used without standing on the belt, but the motor
+      // must first be started and live FTMS telemetry must confirm movement.
       if(this.deviceType(group)!=="treadmill"||this.value(group,"connected")!=="on"||
-          this.value(group,"armed")!=="on"||
+          this.value(group,"armed")!=="on"||!this.moving(group)||
           !["speed","incline"].includes(kind)||![1,-1].includes(direction)||
-          ["safety_stop"].includes(this.value(group,"session_status")))return null;
+          ["safety_stop","paused"].includes(this.value(group,"session_status")))return null;
       const entity=group["target_"+kind];
       const sensor=group[kind==="speed"?"speed_kmh":"incline_percent"];
       if(!entity||invalid(entity.state)||!sensor||invalid(sensor.state))return null;
       const current=Number(sensor.state);
       const min=Number(entity.attributes?.min), max=Number(entity.attributes?.max);
       const resolution=Number(entity.attributes?.step);
-      const delta=kind==="speed"?0.1:1;
+      const delta=kind==="speed"?0.5:1;
       if(![current,min,max,resolution].every(Number.isFinite)||
           min>max||resolution<=0||resolution>delta+1e-6)return null;
       // For example Q5 can advertise a minimum nonzero treadmill speed.
@@ -263,14 +263,14 @@
         '<button type="button" class="danger" data-action="stop" data-ftms-transport>■ Stopp</button></div>'+
         '<div class="ftms-step-grid">'+
         '<div class="ftms-step-box"><div class="ftms-step-title">Hastighet</div>'+
-        '<div class="ftms-step-values"><span data-step-value="speed">–</span> km/h · ± 0,1 km/h</div>'+
-        '<div class="ftms-step-actions"><button type="button" data-step-kind="speed" data-step-direction="-1" disabled aria-label="Minska hastighet med 0,1 km/h">−</button>'+
-        '<button type="button" data-step-kind="speed" data-step-direction="1" disabled aria-label="Öka hastighet med 0,1 km/h">+</button></div></div>'+
+        '<div class="ftms-step-values"><span data-step-value="speed">–</span> km/h · ± 0,5 km/h</div>'+
+        '<div class="ftms-step-actions"><button type="button" data-step-kind="speed" data-step-direction="-1" disabled aria-label="Minska hastighet med 0,5 km/h">−</button>'+
+        '<button type="button" data-step-kind="speed" data-step-direction="1" disabled aria-label="Öka hastighet med 0,5 km/h">+</button></div></div>'+
         '<div class="ftms-step-box"><div class="ftms-step-title">Lutning</div>'+
         '<div class="ftms-step-values"><span data-step-value="incline">–</span> % · ± 1 procentenhet</div>'+
         '<div class="ftms-step-actions"><button type="button" data-step-kind="incline" data-step-direction="-1" disabled aria-label="Minska lutningen med 1 procentenhet">−</button>'+
         '<button type="button" data-step-kind="incline" data-step-direction="1" disabled aria-label="Öka lutningen med 1 procentenhet">+</button></div></div></div>'+
-        '<p class="ftms-note">Testa med TOMT löpband. Styrning aktiveras manuellt och återställs vid frånkoppling. En hastighetsändring kan starta bandet även från stillastående. Säkerhetsnyckeln är nödstoppet; Bluetooth-stopp är det inte.</p>'+
+        '<p class="ftms-note">Testa med TOMT löpband. Aktivera styrning och tryck Start. Hastighet ±0,5 och lutning ±1 låses upp först när Q5 rapporterar rörelse. Stopp är alltid tillgänglig när FTMS-styrning är aktiv (men ersätter aldrig säkerhetsnyckeln).</p>'+
         '<details class="ftms-advanced"><summary>Avancerat · exakta FTMS-målvärden</summary>'+
         '<div class="controls">'+targets+'</div></details></div>'):"";
       const fanChoices=this.fans();
@@ -383,14 +383,16 @@
         const cmd=this.quickTarget(g,button.dataset.stepKind,Number(button.dataset.stepDirection));
         button.disabled=!cmd||!!this._stepBusy;
         button.title=cmd?"Målvärde: "+cmd.value+(button.dataset.stepKind==="speed"?" km/h":" %"):
-          "Styrning måste vara aktiv och värdet inom maskinens FTMS-gränser.";
+          "Starta bandet först. Styrning måste vara aktiv och värdet inom FTMS-gränserna.";
       });
       this.refreshFan(type);
       this.paintCapture();
       this.paintWorkout();
       this.shadowRoot.querySelectorAll('[data-target]').forEach(input=>{
         const e=g["target_"+input.dataset.target];
-        input.disabled=!connected||!armed||!e||e.state==="unavailable";
+        input.disabled=!connected||!armed||
+          (type==="treadmill"&&!this.moving(g))||
+          !e||e.state==="unavailable";
         if(e){
           for(const k of ["min","max","step"])if(e.attributes[k]!==undefined)input[k]=e.attributes[k];
           if(this.shadowRoot.activeElement!==input&&e.state!=="unavailable")input.placeholder=e.state;
@@ -587,8 +589,8 @@
       const group=this.collect()[key];
       const command=this.quickTarget(group,kind,direction);
       if(!command){this.message("Ingen giltig FTMS-ändring möjlig just nu.");return;}
-      if(kind==="speed"&&!confirm("FTMS-test: sätt hastigheten till "+
-        command.value.toLocaleString("sv-SE")+" km/h? Bandet kan börja röra sig även om det står still. Låt det vara TOMT och ha säkerhetsnyckeln tillgänglig."))return;
+      // The confirmed Start action and live speed gate prevent accidental
+      // motor startup. Small quick-steps need no repeated confirmation dialogs.
       this._stepBusy=true;
       this.draw();
       try{
@@ -606,6 +608,10 @@
     async setTarget(kind){
       const g=this.collect()[this.chosen],entry=g?.["target_"+kind],el=this.shadowRoot.querySelector('[data-target="'+kind+'"]');
       if(!entry||entry.state==="unavailable"||!el||el.value.trim()==="")return;
+      if(this.deviceType(g)==="treadmill"&&!this.moving(g)){
+        this.message("Starta löpbandet först innan du ändrar FTMS-målvärden.");
+        return;
+      }
       const v=Number(el.value);
       if(!Number.isFinite(v)||!el.checkValidity()){this.message("Otillåtet värde.");return;}
       if(kind==="speed"&&!confirm("Ändra hastigheten till "+v+" km/h?"))return;

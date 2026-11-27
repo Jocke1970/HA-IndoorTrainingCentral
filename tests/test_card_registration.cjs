@@ -105,3 +105,38 @@ assert.ok(code.includes("data-machine-runner"),"Animated treadmill header runner
 assert.ok(code.includes("prefers-reduced-motion"),"Reduced-motion support missing");
 assert.ok(code.includes("itc-run"),"Running CSS keyframes missing");
 console.log("Treadmill running animation and status fallback tests passed");
+
+
+// FTMS quick-step controls must be locked until speed confirms motor motion.
+const controlledTreadmill=connectedGroup("Q5-6Y 73A9","treadmill","on","ready");
+controlledTreadmill.armed={state:"on"};
+controlledTreadmill.speed_kmh={state:"0"};
+controlledTreadmill.incline_percent={state:"2"};
+controlledTreadmill.target_speed={id:"number.treadmill_target_speed",state:"0",
+  attributes:{min:1,max:6,step:0.1}};
+controlledTreadmill.target_incline={id:"number.treadmill_target_incline",state:"0",
+  attributes:{min:0,max:5,step:1}};
+assert.equal(view.quickTarget(controlledTreadmill,"speed",1),null);
+assert.equal(view.quickTarget(controlledTreadmill,"incline",1),null);
+controlledTreadmill.speed_kmh.state="2";
+assert.equal(view.quickTarget(controlledTreadmill,"speed",1).value,2.5);
+assert.equal(view.quickTarget(controlledTreadmill,"speed",-1).value,1.5);
+assert.equal(view.quickTarget(controlledTreadmill,"incline",1).value,3);
+assert.equal(view.quickTarget(controlledTreadmill,"incline",-1).value,1);
+controlledTreadmill.speed_kmh.state="6";
+assert.equal(view.quickTarget(controlledTreadmill,"speed",1),null);
+controlledTreadmill.speed_kmh.state="1";
+assert.equal(view.quickTarget(controlledTreadmill,"speed",-1),null);
+controlledTreadmill.speed_kmh.state="2";
+controlledTreadmill.incline_percent.state="5";
+assert.equal(view.quickTarget(controlledTreadmill,"incline",1),null);
+controlledTreadmill.incline_percent.state="0";
+assert.equal(view.quickTarget(controlledTreadmill,"incline",-1),null);
+controlledTreadmill.armed.state="off";
+assert.equal(view.quickTarget(controlledTreadmill,"speed",1),null);
+controlledTreadmill.armed.state="on";
+controlledTreadmill.connected.state="off";
+assert.equal(view.quickTarget(controlledTreadmill,"speed",1),null);
+assert.ok(code.includes("± 0,5 km/h"),"Speed step label must be half a km/h");
+assert.ok(code.includes("Starta bandet först"),"Live movement lock instructions missing");
+console.log("FTMS safety gates and 0.5 km/h steps passed");

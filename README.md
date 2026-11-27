@@ -29,7 +29,7 @@ This beta is distributed as a GitHub **pre-release**, not from the development b
 1. In Home Assistant go to **Settings → Marketplace → Add from link**.
 2. Add `https://github.com/Jocke1970/HA-IndoorTrainingCentral` as an **Integration**.
 3. Open HA-IndoorTrainingCentral in Marketplace and enable **Pre-release**.
-4. Install the newest `2026.11.0bN` pre-release (currently `2026.11.0b9`), not the `main` branch.
+4. Install the newest `2026.11.0bN` pre-release (currently `2026.11.0b10`), not the `main` branch.
 5. Open **Settings → Devices & services** and configure HA-IndoorTrainingCentral.
 6. For new dashboards, register `/indoor-training-central/indoor-training-central-card.js` as a JavaScript module and add:
 
@@ -149,3 +149,13 @@ Se [docs/workout-journal.md](docs/workout-journal.md) för testförfarande och f
 - The inference updates the real `Workout status` sensor, not just the Lovelace card. Explicit safety-stop events are preserved.
 - Animate the running-person icon in the treadmill header and device tile **only while speed is positive and the treadmill is connected**. The animation stops when the belt stops or HA loses connection.
 - Respect the browser's reduced-motion preference. Bike/rower/HEADWIND and machine-control behavior are unchanged.
+
+
+## Q5 FTMS supervised control test (beta b10)
+
+- New treadmill panel: manually activate FTMS control, then **Start**, **Paus**, **Stopp**, **Hastighet −/+ 0,5 km/h**, and **Lutning −/+ 1 procentenhet**. Exact target fields remain under Advanced.
+- Quick-step controls and exact targets unlock only when live treadmill speed exceeds 0.2 km/h (motor running); the operator need not be standing on the belt during these initial tests. If the device acknowledges Start but does not move, keep controls locked and inspect the hardware behavior.
+- Start requires explicit confirmation. Speed steps are small and do not require repeated confirmations once the belt is moving. Both quick controls require an armed, connected FTMS device and advertised supported targets; they disable at speed/incline boundaries.
+- Stopp remains available whenever the device is connected and control is armed, regardless of displayed treadmill speed; it is **not** an emergency stop. Always keep the physical safety key available.
+- HA disconnection disarms the controller as before. No automatic rearming and no Bluetooth connection changes.
+- No changes to saved workout JSONL data or HEARTWIND/Tacx/rower operation.
