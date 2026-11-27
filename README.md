@@ -169,3 +169,12 @@ Se [docs/workout-journal.md](docs/workout-journal.md) för testförfarande och f
 - Remove repetitive speed-change confirmation for the optional exact numeric target under Advanced. The existing one-click ± steppers remain confirmation-free.
 - Speed and incline changes remain locked until the motor is observed moving (FTMS speed >0.2 km/h), with armed connection and machine-advertised limits mandatory. Control is always disabled on disconnection; no auto-arm/auto-start.
 - Provide a live explanation of why controls are locked or available; keep Stop visible when armed. Stop over BLE is not a safety stop.
+
+## Roadmap / TODO
+
+### Tacx FLUX S — ERG minimum achievable power
+
+- [ ] Investigate the minimum achievable ERG power (resistance floor) as a function of flywheel speed, cadence and drivetrain gear ratio. Reference: [Garmin — ERG training with FLUX series](https://support.garmin.com/sv-SE/?faq=zUlDydqhpo8XylNtLZD7R7).
+- [ ] During trainer hardware testing, capture actual power, requested ERG power, cadence, reported speed and, if available, gear ratio. Test different gears and cadences to estimate the lower power envelope; do not assume reported speed is physical flywheel speed without verification.
+- [ ] Explore optional user-configured gearing or an empirical speed/power model. Distinguish unavoidable drivetrain/trainer resistance from commanded resistance and account for measurement uncertainty.
+- [ ] Consider an estimated minimum achievable power indicator and a warning when the requested ERG target is below the estimated floor. Keep advisory/read-only initially; do not silently change targets or automatically shift gears.
