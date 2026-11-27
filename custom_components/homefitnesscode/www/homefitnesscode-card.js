@@ -74,6 +74,7 @@
     value(group,key){const s=group[key]?.state;return invalid(s)?null:s;}
     moving(group){
       if(this.deviceType(group)!=="treadmill"||this.value(group,"connected")!=="on")return false;
+      if(["paused","stopped","safety_stop","reset"].includes(this.value(group,"session_status")))return false;
       const speed=Number(this.value(group,"speed_kmh"));
       return Number.isFinite(speed)&&speed>0.2;
     }
@@ -177,9 +178,9 @@
       "h2{margin:3px 0;font-size:23px}h3{margin:0 0 8px;font-size:16px}",
       ".machine-heading{display:flex;align-items:center;gap:8px}",
       ".machine-runner{display:inline-block;font-size:21px;line-height:1;transform-origin:center}",
-      ".machine-runner.is-moving,.device-tab-icon.is-moving{animation:itc-run .42s ease-in-out infinite alternate}",
-      "@keyframes itc-run{0%{transform:translateY(1px) rotate(-9deg)}100%{transform:translateY(-3px) rotate(9deg)}}",
-      "@media (prefers-reduced-motion:reduce){.machine-runner.is-moving,.device-tab-icon.is-moving{animation:none}}",
+      ".machine-runner.is-moving,.device-tab-icon.is-moving{animation:itc-run .32s ease-in-out infinite alternate}",
+      "@keyframes itc-run{0%{transform:translateY(2px) rotate(-18deg)}100%{transform:translateY(-5px) rotate(18deg)}}",
+      "@media (prefers-reduced-motion:reduce){.machine-runner.is-moving,.device-tab-icon.is-moving{animation:none;outline:2px solid currentColor;border-radius:4px}}",
       ".sub,.foot{font-size:12px;color:var(--secondary-text-color)}",
       ".connection-status{display:inline-flex;align-items:center;gap:7px;flex-wrap:wrap}",
       ".connection-dot{width:9px;height:9px;display:inline-block;flex:0 0 9px;border-radius:50%;background:var(--secondary-text-color);opacity:.8}",
@@ -260,7 +261,6 @@
         '<button type="button" data-action="'+a+'" '+(a==='stop'?'class="danger"':'')+'>'+({arm:type==="bike"?"Aktivera trainerstyrning":"Aktivera styrning",start:"Start",pause:"Paus",stop:"Stopp"}[a])+'</button>').join("");
       const ftmsTest=type==="treadmill"?(
         '<div class="ftms-test"><div class="ftms-transport">'+
-        '<button type="button" data-action="start" data-ftms-transport>▶ Start via HA</button>'+
         '<button type="button" data-action="pause" data-ftms-transport>Ⅱ Paus</button>'+
         '<button type="button" class="danger" data-action="stop" data-ftms-transport>■ Stopp</button></div>'+
         '<div class="ftms-step-grid">'+
@@ -274,8 +274,8 @@
         '<div class="ftms-step-actions"><button type="button" data-step-kind="incline" data-step-direction="-1" disabled aria-label="Minska lutningen med 1 procentenhet">−</button>'+
         '<span class="ftms-step-display"><span data-step-value="incline">–</span> %</span>'+
         '<button type="button" data-step-kind="incline" data-step-direction="1" disabled aria-label="Öka lutningen med 1 procentenhet">+</button></div></div></div>'+
-        '<div class="ftms-lock" data-ftms-lock>Aktivera styrning och starta bandet via HA eller konsolen.</div>'+
-        '<p class="ftms-note">Start går via FTMS och kan provköras med TOMT band. När Q5 rapporterar rörelse går det att ändra hastighet och lutning direkt med ±, utan bekräftelser. Stopp är inte ett nödstopp; använd säkerhetsnyckeln vid fara.</p>'+
+        '<div class="ftms-lock" data-ftms-lock>Starta bandet på löpbandets konsol och aktivera styrning.</div>'+
+        '<p class="ftms-note">Start och återstart sker endast på löpbandets konsol. När Q5 rapporterar rörelse går det att ändra hastighet och lutning direkt med ±, utan bekräftelser. Stopp är inte ett nödstopp; använd säkerhetsnyckeln vid fara.</p>'+
         '<details class="ftms-advanced"><summary>Avancerat · exakta FTMS-målvärden</summary>'+
         '<div class="controls">'+targets+'</div></details></div>'):"";
       const fanChoices=this.fans();
@@ -386,9 +386,9 @@
         el.textContent=this.display(g,el.dataset.stepValue==="speed"?"speed_kmh":"incline_percent"));
       const lock=this.shadowRoot.querySelector('[data-ftms-lock]');
       if(lock)lock.textContent=!connected?"Bluetooth frånkopplat – inga FTMS-kommandon möjliga.":
-        !armed?"Aktivera styrning för att starta bandet via HA.":
+        !armed?"Aktivera styrning. Start sker endast på löpbandet.":
         this.moving(g)?"Bandet rör sig – hastighet och lutning kan ändras med ±.":
-        "Starta via HA eller konsolen – ± aktiveras när Q5 rapporterar rörelse.";
+        "Starta bandet först på konsolen – ± aktiveras när Q5 rapporterar rörelse.";
       this.shadowRoot.querySelectorAll('[data-step-kind]').forEach(button=>{
         const cmd=this.quickTarget(g,button.dataset.stepKind,Number(button.dataset.stepDirection));
         button.disabled=!cmd||!!this._stepBusy;
@@ -590,7 +590,7 @@
     async action(name){
       const g=this.collect()[this.chosen],entry=g?.[name];
       if(!entry||entry.state==="unavailable")return;
-      if(name==="start"&&!confirm("FTMS-test: starta löpbandet? Låt bandet vara TOMT, kontrollera fri yta och att säkerhetsnyckeln finns inom räckhåll."))return;
+      if(name==="start")return;
       await this.call("button","press",{entity_id:entry.id});
     }
     async incrementTarget(kind,direction){

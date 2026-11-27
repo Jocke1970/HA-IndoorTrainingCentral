@@ -42,6 +42,7 @@ class Transport:
         self.has_control = False
         self.armed = False
         self.ranges: dict[str, tuple[float, float, float]] = {}
+        self._motion_at = 0.0
         self._connect_lock = asyncio.Lock()
         self._write_lock = asyncio.Lock()
         self._waiter: asyncio.Future[bytes] | None = None
@@ -63,6 +64,7 @@ class Transport:
 
     def _disconnected(self, _client: BleakClient) -> None:
         self._capture("event", "connection", decoded={"status": "disconnected"})
+        self._motion_at = 0.0
         self.client = None
         self.tacx = None
         self.has_control = False
@@ -83,6 +85,8 @@ class Transport:
             _LOGGER.debug("Ignored malformed %s packet: %s", self.machine_type, err)
         else:
             self._capture("rx", channel, payload, decoded=values)
+            if self.machine_type == "treadmill" and "speed_kmh" in values:
+                self._motion_at = asyncio.get_running_loop().time() if values["speed_kmh"] > 0.2 else 0.0
             self.on_data(values)
 
     def _status(self, _char: Any, payload: bytearray) -> None:
@@ -104,6 +108,8 @@ class Transport:
             values = {"session_status": "running"}
         self._capture("rx", STATUS_CHAR, payload, decoded=values,
                       error=None if values else f"unknown_status_opcode_{code:02x}")
+        if code in (0x01, 0x02, 0x03):
+            self._motion_at = 0.0
         if values:
             self.on_data(values)
 
@@ -208,6 +214,7 @@ class Transport:
                 raise
 
     async def disconnect(self) -> None:
+        self._motion_at = 0.0
         client, self.client = self.client, None
         self.tacx = None
         self.armed = False
@@ -257,6 +264,11 @@ class Transport:
                 raise ConnectionError("FTMS control not available")
             if need_arm and not self.armed:
                 raise PermissionError("Press Arm control first")
+            if payload[0] == 0x07:
+                raise PermissionError("Remote start or resume is disabled")
+            if self.machine_type == "treadmill" and payload[0] in (0x02, 0x03):
+                if not self._motion_at or asyncio.get_running_loop().time() - self._motion_at > 3:
+                    raise PermissionError("Fresh treadmill movement required")
             self._expected = payload[0]
             self._waiter = asyncio.get_running_loop().create_future()
             try:
@@ -299,10 +311,12 @@ class Transport:
         if self.tacx is not None:
             raise ValueError("FE-C trainers are driven by pedaling; no start/stop command")
         if action == "start":
-            await self._write(b"\x07")  # Start or Resume
+            raise PermissionError("Remote start or resume is disabled; use the treadmill console")
         elif action == "stop":
+            self._motion_at = 0.0
             await self._write(b"\x08\x01")
         elif action == "pause":
+            self._motion_at = 0.0
             await self._write(b"\x08\x02")
         else:
             raise ValueError("Unknown FTMS session action")

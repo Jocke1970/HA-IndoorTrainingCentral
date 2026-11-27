@@ -142,17 +142,16 @@ assert.ok(code.includes("Starta bandet först"),"Live movement lock instructions
 console.log("FTMS safety gates and 0.5 km/h steps passed");
 
 
-// b11: single-click +/- steppers are the primary UI; Start via HA is allowed.
-// Confirmations remain only for the motor START action.
-assert.ok(code.includes("Start via HA"),"Remote Start must be clearly labelled");
+// Single-click +/- controls require local treadmill start.
+assert.ok(!code.includes("Start via HA"),"Remote Start must not be exposed");
 assert.ok(code.includes('data-ftms-lock'),"Movement lock state should be visible");
 assert.ok(code.includes("ftms-step-display"),"Numeric value should be inside +/- row");
 assert.ok(code.includes("Steg: 0,5 km/h"),"Speed step label should be 0.5 km/h");
 assert.ok(code.includes("Steg: 1 procentenhet"),"Incline step should be one percentage point");
 assert.ok(!code.includes('confirm("Ändra hastigheten till '),
   "Speed target changes must not request confirmation each time");
-assert.ok(code.includes('name==="start"&&!confirm('),
-  "Motor start must retain explicit confirmation");
+assert.ok(code.includes('if(name==="start")return;'),
+  "Remote start must be blocked");
 assert.ok(code.includes("!this.moving(group)"),
   "Steppers still require physically observed treadmill movement");
 console.log("Direct +/- treadmill FTMS controls without repeated confirmation checks passed");

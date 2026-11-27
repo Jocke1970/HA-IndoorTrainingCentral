@@ -26,7 +26,7 @@ MACHINE_NUMBERS = {
     "rower": ("resistance", "power"),
 }
 MACHINE_BUTTONS = {
-    "treadmill": ("arm", "start", "pause", "stop"),
+    "treadmill": ("arm", "pause", "stop"),
     "bike": ("arm",),
     "rower": ("arm",),
 }

@@ -32,7 +32,7 @@ def test_rower_and_treadmill_are_disjoint():
     treadmill = catalog.registered_metrics("treadmill", "ftms")
     assert "stroke_count" in rower and "target_speed" not in rower
     assert "target_speed" in treadmill and "stroke_count" not in treadmill
-    assert "start" in treadmill and "start" not in rower
+    assert "start" not in treadmill and "start" not in rower
 
 
 def test_unclassified_device_only_has_status():
