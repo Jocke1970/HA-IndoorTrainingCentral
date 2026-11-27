@@ -217,10 +217,12 @@
       ".ftms-step-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}",
       ".ftms-step-box{border:1px solid var(--divider-color);border-radius:11px;padding:12px;display:grid;gap:8px;min-width:0}",
       ".ftms-step-title{font-size:13px;font-weight:650}",
-      ".ftms-step-values{font-size:12px;color:var(--secondary-text-color)}",
-      ".ftms-step-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}",
-      ".ftms-step-actions button{font-size:17px;font-weight:750;min-width:0;min-height:48px}",
-      ".ftms-step-box [data-step-value]{font-size:17px;font-weight:700;color:var(--primary-text-color)}",
+      ".ftms-step-values{font-size:11px;color:var(--secondary-text-color)}",
+      ".ftms-step-actions{display:grid;grid-template-columns:minmax(0,1fr) minmax(65px,1.7fr) minmax(0,1fr);align-items:center;gap:7px}",
+      ".ftms-step-actions button{font-size:22px;font-weight:750;min-width:0;min-height:48px}",
+      ".ftms-step-display{text-align:center;font-size:12px;white-space:nowrap;min-width:0}",
+      ".ftms-step-box [data-step-value]{font-size:20px;font-weight:700;color:var(--primary-text-color)}",
+      ".ftms-lock{font-size:12px;color:var(--secondary-text-color);font-weight:600}",
       ".ftms-advanced{margin-top:5px;border-top:1px solid var(--divider-color);padding-top:10px}",
       ".ftms-advanced summary{cursor:pointer;font-size:12px;font-weight:650}",
       ".ftms-note{font-size:12px;color:var(--secondary-text-color)}",
@@ -258,19 +260,22 @@
         '<button type="button" data-action="'+a+'" '+(a==='stop'?'class="danger"':'')+'>'+({arm:type==="bike"?"Aktivera trainerstyrning":"Aktivera styrning",start:"Start",pause:"Paus",stop:"Stopp"}[a])+'</button>').join("");
       const ftmsTest=type==="treadmill"?(
         '<div class="ftms-test"><div class="ftms-transport">'+
-        '<button type="button" data-action="start" data-ftms-transport>▶ Start</button>'+
+        '<button type="button" data-action="start" data-ftms-transport>▶ Start via HA</button>'+
         '<button type="button" data-action="pause" data-ftms-transport>Ⅱ Paus</button>'+
         '<button type="button" class="danger" data-action="stop" data-ftms-transport>■ Stopp</button></div>'+
         '<div class="ftms-step-grid">'+
         '<div class="ftms-step-box"><div class="ftms-step-title">Hastighet</div>'+
-        '<div class="ftms-step-values"><span data-step-value="speed">–</span> km/h · ± 0,5 km/h</div>'+
+        '<div class="ftms-step-values">Steg: 0,5 km/h</div>'+
         '<div class="ftms-step-actions"><button type="button" data-step-kind="speed" data-step-direction="-1" disabled aria-label="Minska hastighet med 0,5 km/h">−</button>'+
+        '<span class="ftms-step-display"><span data-step-value="speed">–</span> km/h</span>'+
         '<button type="button" data-step-kind="speed" data-step-direction="1" disabled aria-label="Öka hastighet med 0,5 km/h">+</button></div></div>'+
         '<div class="ftms-step-box"><div class="ftms-step-title">Lutning</div>'+
-        '<div class="ftms-step-values"><span data-step-value="incline">–</span> % · ± 1 procentenhet</div>'+
+        '<div class="ftms-step-values">Steg: 1 procentenhet</div>'+
         '<div class="ftms-step-actions"><button type="button" data-step-kind="incline" data-step-direction="-1" disabled aria-label="Minska lutningen med 1 procentenhet">−</button>'+
+        '<span class="ftms-step-display"><span data-step-value="incline">–</span> %</span>'+
         '<button type="button" data-step-kind="incline" data-step-direction="1" disabled aria-label="Öka lutningen med 1 procentenhet">+</button></div></div></div>'+
-        '<p class="ftms-note">Testa med TOMT löpband. Aktivera styrning och tryck Start. Hastighet ±0,5 och lutning ±1 låses upp först när Q5 rapporterar rörelse. Stopp är alltid tillgänglig när FTMS-styrning är aktiv (men ersätter aldrig säkerhetsnyckeln).</p>'+
+        '<div class="ftms-lock" data-ftms-lock>Aktivera styrning och starta bandet via HA eller konsolen.</div>'+
+        '<p class="ftms-note">Start går via FTMS och kan provköras med TOMT band. När Q5 rapporterar rörelse går det att ändra hastighet och lutning direkt med ±, utan bekräftelser. Stopp är inte ett nödstopp; använd säkerhetsnyckeln vid fara.</p>'+
         '<details class="ftms-advanced"><summary>Avancerat · exakta FTMS-målvärden</summary>'+
         '<div class="controls">'+targets+'</div></details></div>'):"";
       const fanChoices=this.fans();
@@ -379,6 +384,11 @@
       });
       this.shadowRoot.querySelectorAll('[data-step-value]').forEach(el=>
         el.textContent=this.display(g,el.dataset.stepValue==="speed"?"speed_kmh":"incline_percent"));
+      const lock=this.shadowRoot.querySelector('[data-ftms-lock]');
+      if(lock)lock.textContent=!connected?"Bluetooth frånkopplat – inga FTMS-kommandon möjliga.":
+        !armed?"Aktivera styrning för att starta bandet via HA.":
+        this.moving(g)?"Bandet rör sig – hastighet och lutning kan ändras med ±.":
+        "Starta via HA eller konsolen – ± aktiveras när Q5 rapporterar rörelse.";
       this.shadowRoot.querySelectorAll('[data-step-kind]').forEach(button=>{
         const cmd=this.quickTarget(g,button.dataset.stepKind,Number(button.dataset.stepDirection));
         button.disabled=!cmd||!!this._stepBusy;
@@ -589,8 +599,8 @@
       const group=this.collect()[key];
       const command=this.quickTarget(group,kind,direction);
       if(!command){this.message("Ingen giltig FTMS-ändring möjlig just nu.");return;}
-      // The confirmed Start action and live speed gate prevent accidental
-      // motor startup. Small quick-steps need no repeated confirmation dialogs.
+      // Only a connected, armed and moving treadmill allows +/- targets.
+      // No repeated confirmation dialogs once movement is confirmed.
       this._stepBusy=true;
       this.draw();
       try{
@@ -614,7 +624,8 @@
       }
       const v=Number(el.value);
       if(!Number.isFinite(v)||!el.checkValidity()){this.message("Otillåtet värde.");return;}
-      if(kind==="speed"&&!confirm("Ändra hastigheten till "+v+" km/h?"))return;
+      // Exact target entry is behind the collapsed Advanced panel and shares
+      // the same armed/moving limits; it does not prompt on every adjustment.
       await this.call("number","set_value",{entity_id:entry.id,value:v});
       el.value="";
     }

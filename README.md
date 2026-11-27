@@ -29,7 +29,7 @@ This beta is distributed as a GitHub **pre-release**, not from the development b
 1. In Home Assistant go to **Settings → Marketplace → Add from link**.
 2. Add `https://github.com/Jocke1970/HA-IndoorTrainingCentral` as an **Integration**.
 3. Open HA-IndoorTrainingCentral in Marketplace and enable **Pre-release**.
-4. Install the newest `2026.11.0bN` pre-release (currently `2026.11.0b10`), not the `main` branch.
+4. Install the newest `2026.11.0bN` pre-release (currently `2026.11.0b11`), not the `main` branch.
 5. Open **Settings → Devices & services** and configure HA-IndoorTrainingCentral.
 6. For new dashboards, register `/indoor-training-central/indoor-training-central-card.js` as a JavaScript module and add:
 
@@ -159,3 +159,13 @@ Se [docs/workout-journal.md](docs/workout-journal.md) för testförfarande och f
 - Stopp remains available whenever the device is connected and control is armed, regardless of displayed treadmill speed; it is **not** an emergency stop. Always keep the physical safety key available.
 - HA disconnection disarms the controller as before. No automatic rearming and no Bluetooth connection changes.
 - No changes to saved workout JSONL data or HEARTWIND/Tacx/rower operation.
+
+
+## Q5 FTMS controls polish (beta b11)
+
+- Tested against the user's raw Q5 JSONL command trace: Request Control `00`, Start `07`, Set Speed `02` (1.0–2.0 km/h), Set Incline `03` (0–3%), Stop `0801`, all positively acknowledged by FTMS Control Point.
+- Clarify that FTMS Start is supported from HA: there is **no requirement to press Start on the physical Q5 console**. Motor start retains an explicit confirmation; command receipt does not count as confirmed belt movement.
+- Promote speed ±0.5 km/h and incline ±1 percentage-point to primary three-column stepper controls with observed current values in the middle.
+- Remove repetitive speed-change confirmation for the optional exact numeric target under Advanced. The existing one-click ± steppers remain confirmation-free.
+- Speed and incline changes remain locked until the motor is observed moving (FTMS speed >0.2 km/h), with armed connection and machine-advertised limits mandatory. Control is always disabled on disconnection; no auto-arm/auto-start.
+- Provide a live explanation of why controls are locked or available; keep Stop visible when armed. Stop over BLE is not a safety stop.
