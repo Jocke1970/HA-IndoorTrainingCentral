@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import asyncio
 from datetime import timedelta
 from typing import Any
 
@@ -66,6 +67,8 @@ class HFCState(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.debug("FTMS waiting for %s: %s", self.entry.data["address"], err)
             return {**self.data, "connected": False, "armed": False, "session_status": "disconnected"}
         connected = self.transport.connected
+        if self.transport.machine_type == "heart_rate_monitor" and (not self.transport._hr_at or asyncio.get_running_loop().time() - self.transport._hr_at > 10):
+            self.data = {**self.data, "heart_rate_bpm": None, "rr_interval_ms": None}
         return {
             **self.data, "connected": connected,
             "armed": self.transport.armed,

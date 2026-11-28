@@ -15,6 +15,8 @@ METRICS = {
     "average_speed_kmh": ("Average speed", "km/h", ("treadmill", "bike")),
     "distance_km": ("Distance", "km", None),
     "incline_percent": ("Incline", "%", ("treadmill",)),
+    "battery_percent": ("Battery", "%", ("heart_rate_monitor",)),
+    "rr_interval_ms": ("RR interval", "ms", ("heart_rate_monitor",)),
     "heart_rate_bpm": ("Heart rate", "bpm", None),
     "elapsed_s": ("Elapsed time", "s", None),
     "remaining_s": ("Remaining time", "s", None),
@@ -45,7 +47,8 @@ class HFCSensor(HFCEntity, SensorEntity):
         return ((self.metric in ("machine_type", "protocol") or self.coordinator.data.get("connected", False))
                 and (self.allowed is None or
                      self.coordinator.data.get("machine_type") in self.allowed)
-                and self.metric in self.coordinator.data)
+                and self.metric in self.coordinator.data
+                and self.coordinator.data.get(self.metric) is not None)
 
     @property
     def extra_state_attributes(self):

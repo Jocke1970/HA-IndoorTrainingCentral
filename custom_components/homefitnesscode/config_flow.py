@@ -5,7 +5,7 @@ import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.components import bluetooth
 
-from .const import CAP_DEFAULTS, DOMAIN, MACHINE_OPTIONS, PROFILE_OPTIONS, SERVICE_FTMS, TACX_FEC_SERVICE
+from .const import CAP_DEFAULTS, DOMAIN, MACHINE_OPTIONS, PROFILE_OPTIONS, SERVICE_FTMS, TACX_FEC_SERVICE, SERVICE_HRS
 
 
 class HomeFitnessCodeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -14,9 +14,12 @@ class HomeFitnessCodeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     def __init__(self):
         self._found_address = None
         self._found_name = None
+        self._found_hrs = False
 
     async def async_step_bluetooth(self, discovery_info):
         self._found_address = discovery_info.address
+        services = {str(x).lower() for x in discovery_info.service_uuids}
+        self._found_hrs = SERVICE_HRS in services and not services.intersection({SERVICE_FTMS, TACX_FEC_SERVICE})
         self._found_name = discovery_info.name or "FTMS machine"
         await self.async_set_unique_id(self._found_address)
         self._abort_if_unique_id_configured()
@@ -30,8 +33,8 @@ class HomeFitnessCodeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_create_entry(
             title=self._found_name,
             data={"address": self._found_address,
-                  "profile": "wahoo_headwind" if is_headwind else "auto",
-                  "machine": "headwind" if is_headwind else "auto",
+                  "profile": "wahoo_headwind" if is_headwind else "ble_hrs" if self._found_hrs else "auto",
+                  "machine": "headwind" if is_headwind else "heart_rate_monitor" if self._found_hrs else "auto",
                   **{f"max_{k}": v for k, v in CAP_DEFAULTS.items()}}
         )
 
@@ -55,6 +58,8 @@ class HomeFitnessCodeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 data["machine"] = "headwind"
             if data.get("profile") == "wahoo_headwind":
                 data["machine"] = "headwind"
+            if data.get("profile") == "ble_hrs" or data.get("machine") == "heart_rate_monitor":
+                data.update(profile="ble_hrs", machine="heart_rate_monitor")
             return self.async_create_entry(title=name or address, data=data)
         form = {
             vol.Required("address"): vol.In(devices),

@@ -15,6 +15,8 @@ from .const import CONTROL_CHAR, DATA_CHARS, FEATURE_CHAR, RANGE_CHARS, STATUS_C
 from .capture import ProtocolCapture
 from .profiles import make_profile
 from .protocol import encode_target, validate_reply
+from .const import HR_MEASUREMENT, BATTERY_LEVEL
+from .heart_rate import parse_heart_rate
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -42,6 +44,7 @@ class Transport:
         self.has_control = False
         self.armed = False
         self.ranges: dict[str, tuple[float, float, float]] = {}
+        self._hr_at = 0.0
         self._motion_at = 0.0
         self._connect_lock = asyncio.Lock()
         self._write_lock = asyncio.Lock()
@@ -88,6 +91,16 @@ class Transport:
             if self.machine_type == "treadmill" and "speed_kmh" in values:
                 self._motion_at = asyncio.get_running_loop().time() if values["speed_kmh"] > 0.2 else 0.0
             self.on_data(values)
+
+    def _heart_rate(self, _char: Any, payload: bytearray) -> None:
+        try:
+            values = parse_heart_rate(bytes(payload))
+        except ValueError as err:
+            self._capture("rx", HR_MEASUREMENT, payload, error=str(err), protocol="ble_hrs")
+            return
+        self._hr_at = asyncio.get_running_loop().time()
+        self._capture("rx", HR_MEASUREMENT, payload, decoded=values, protocol="ble_hrs")
+        self.on_data(values)
 
     def _status(self, _char: Any, payload: bytearray) -> None:
         # FTMS status notifications are observation only; never trigger motor control.
@@ -142,6 +155,24 @@ class Transport:
                               decoded={"characteristics": self.gatt_inventory})
                 available = {kind: ch for kind, ch in DATA_CHARS.items()
                              if services.get_characteristic(ch)}
+                if (self.profile_name == "ble_hrs" or (self.profile_name == "auto" and not available and not services.get_characteristic(TACX_RX))) and services.get_characteristic(HR_MEASUREMENT):
+                    self.machine_type = "heart_rate_monitor"
+                    self.has_control = self.armed = False
+                    self._hr_at = 0.0
+                    self.client = client
+                    self.on_data({"protocol": "ble_hrs", "machine_type": self.machine_type,
+                                  "heart_rate_bpm": None, "rr_interval_ms": None, "battery_percent": None})
+                    await client.start_notify(HR_MEASUREMENT, self._heart_rate)
+                    if services.get_characteristic(BATTERY_LEVEL):
+                        try:
+                            battery = await client.read_gatt_char(BATTERY_LEVEL)
+                            if battery and battery[0] <= 100:
+                                self.on_data({"battery_percent": battery[0]})
+                        except Exception as err:
+                            _LOGGER.debug("Optional HRS battery read failed: %s", err)
+                    return
+                if self.profile_name == "ble_hrs":
+                    raise ConnectionError("Heart Rate Measurement characteristic missing")
                 if (not available and services.get_characteristic(TACX_RX)
                         and services.get_characteristic(TACX_TX)
                         and self.profile_name in ("auto", "tacx_fec")):

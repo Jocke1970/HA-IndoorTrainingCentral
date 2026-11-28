@@ -36,6 +36,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass.config_entries.async_update_entry(entry, data={
             **entry.data, "profile": "wahoo_headwind", "machine": "headwind",
         })
+    if hint == "heart_rate_monitor" and entry.data.get("profile") != "ble_hrs":
+        hass.config_entries.async_update_entry(entry, data={
+            **entry.data, "profile": "ble_hrs", "machine": "heart_rate_monitor",
+        })
     state = (HeadwindState(hass, entry)
              if entry.data.get('profile') == 'wahoo_headwind'
              else HFCState(hass, entry))
@@ -47,7 +51,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     def prune_old_registry_entries() -> None:
         kind = state.data.get("machine_type", "auto")
-        if kind not in ("headwind", "bike", "rower", "treadmill", "auto"):
+        if kind not in ("headwind", "bike", "rower", "treadmill", "auto", "heart_rate_monitor"):
             return  # Unknown BLE device gets a minimal diagnostic entity set.
         profile = entry.data.get("profile", "auto")
         if profile == "auto":

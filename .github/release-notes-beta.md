@@ -1,8 +1,7 @@
-# HA-IndoorTrainingCentral 2026.11.0b12 (beta)
+# HA-IndoorTrainingCentral 2026.11.0b13
 
-- Remove remote treadmill Start/Resume from UI, entity catalog and FTMS transport.
-- Require fresh observed belt movement for speed and incline commands.
-- Preserve 0.5 km/h and 1 percentage-point +/- controls.
-- Increase runner animation visibility; respect reduced motion preferences.
-
-Hardware verification required before stable release.
+- Standard BLE Heart Rate Service discovery and read-only telemetry: pulse, optional RR and battery.
+- Existing recognized heart rate entries migrate in place; generic entries can detect HRS by GATT.
+- Shared card heart rate source selector; no dedicated training tab.
+- Normalized HR fields prepare future ANT+ sources. ANT+ receiver, external HA source, journal and repeater integration are not implemented yet.
+- Hardware testing required.

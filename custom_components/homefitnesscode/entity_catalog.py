@@ -18,6 +18,7 @@ TYPE_SENSORS = {
               "distance_km", "power_w", "average_power_w",
               "resistance_level", "heart_rate_bpm", "elapsed_s",
               "remaining_s", "energy_kcal"),
+    "heart_rate_monitor": ("heart_rate_bpm", "battery_percent", "rr_interval_ms"),
     "headwind": ("headwind_mode", "fan_percent", "firmware_version"),
 }
 MACHINE_NUMBERS = {
@@ -39,6 +40,8 @@ def inferred_machine(data: dict, name: str) -> str:
     upper = name.upper()
     if profile == "wahoo_headwind" or upper.startswith(("HEADWIND", "KICKR HEADWIND")):
         return "headwind"
+    if profile == "ble_hrs" or "MORPHEUS M7" in upper or upper.startswith(("M7 ", "M7-", "TICKR", "TRACKR", "HRM-")):
+        return "heart_rate_monitor"
     if selected in TYPE_SENSORS:
         return selected
     if profile == "christopeit_wp5000" or "WP5000" in upper or "RODD" in upper:
@@ -53,6 +56,8 @@ def inferred_machine(data: dict, name: str) -> str:
 def sensors_for(kind: str, profile: str) -> tuple[str, ...]:
     if kind == "headwind":
         return TYPE_SENSORS["headwind"]
+    if kind == "heart_rate_monitor":
+        return ("machine_type", "protocol") + TYPE_SENSORS[kind]
     keys = COMMON_SENSORS + TYPE_SENSORS.get(kind, ())
     if profile == "christopeit_wp5000":
         keys += ("gatt_inventory",)

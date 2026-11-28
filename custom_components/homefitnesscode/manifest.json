@@ -1,7 +1,7 @@
 {
   "domain": "homefitnesscode",
   "name": "HA-IndoorTrainingCentral",
-  "version": "2026.11.0b12",
+  "version": "2026.11.0b13",
   "documentation": "https://github.com/Jocke1970/HA-IndoorTrainingCentral",
   "codeowners": [
     "@Jocke1970"
@@ -20,6 +20,9 @@
     },
     {
       "local_name": "HEADWIND*"
+    },
+    {
+      "service_uuid": "0000180d-0000-1000-8000-00805f9b34fb"
     }
   ],
   "iot_class": "local_push",

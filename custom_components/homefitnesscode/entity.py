@@ -16,6 +16,7 @@ class HFCEntity(CoordinatorEntity):
         self._attr_unique_id = f"{coordinator.entry.unique_id or coordinator.entry.entry_id}_{metric}"
         kind = inferred_machine(dict(coordinator.entry.data), coordinator.entry.title)
         device_specs = {
+            "heart_rate_monitor": ("Bluetooth HRS", "Heart rate monitor"),
             "headwind": ("Wahoo", "KICKR HEADWIND"),
             "rower": ("Top Sport / Christopeit", "WP5000"),
             "treadmill": ("HomeFitnessCode / FTMS", "Treadmill"),

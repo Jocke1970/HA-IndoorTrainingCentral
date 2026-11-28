@@ -5,6 +5,7 @@
     treadmill: {name:"Löpband", metrics:["speed_kmh","distance_km","elapsed_s","heart_rate_bpm","incline_percent","energy_kcal"],targets:["speed","incline"]},
     bike: {name:"Cykeltrainer",metrics:["power_w","cadence_rpm","speed_kmh","heart_rate_bpm","distance_km","elapsed_s","resistance_level"],targets:["power","resistance","incline"]},
     rower: {name:"Roddmaskin",metrics:["pace_s_per_500m","stroke_rate_spm","distance_km","stroke_count","elapsed_s","heart_rate_bpm","power_w"],targets:["resistance","power"]},
+    heart_rate_monitor: {name:"Pulsband",metrics:[],targets:[]},
     headwind: {name:"Wahoo HEADWIND",metrics:[],targets:[]},
     auto: {name:"Träningsutrustning",metrics:[],targets:[]}
   };
@@ -109,12 +110,12 @@
     }
     visibleDeviceIds(groups){
       const keys=Object.keys(groups);
-      const fitness=keys.filter(id=>this.deviceType(groups[id])!=="headwind");
+      const fitness=keys.filter(id=>!["headwind","heart_rate_monitor"].includes(this.deviceType(groups[id])));
       // Existing dedicated HEADWIND dashboards remain selectable.
       const standalone=this.config?.entry_id&&groups[this.config.entry_id]&&
         this.deviceType(groups[this.config.entry_id])==="headwind";
       if(standalone)return [this.config.entry_id];
-      const chosen=fitness.length?fitness:keys;
+      const chosen=fitness.length?fitness:keys.filter(id=>this.deviceType(groups[id])!=="heart_rate_monitor");
       const rank={treadmill:0,bike:1,rower:2,auto:3,headwind:4};
       return chosen.sort((a,b)=>
         (rank[this.deviceType(groups[a])]??9)-(rank[this.deviceType(groups[b])]??9)||
@@ -318,6 +319,7 @@
         '<h2 class="machine-heading">'+(type==="treadmill"?'<span class="machine-runner" data-machine-runner aria-hidden="true">🏃</span>':"")+
         esc(d.name)+'</h2></div></header>'+
         '<nav class="device-nav" aria-label="Välj träningsmaskin">'+tabs+'</nav>'+
+        '<section><h3>♥ Pulskälla</h3><select data-hr-source aria-label="Pulskälla"></select><div data-hr-reading aria-live="polite">– bpm</div></section>'+
         trainPanel+fanPanel+workoutPanel+capturePanel+
         '<footer class="foot"><span data-protocol>Protokoll: –</span><span data-arm>Låst</span></footer>'+
         '</div></ha-card>';
@@ -330,6 +332,7 @@
         void this.refreshWorkout();
         void this.refreshCapture();
       }));
+      this.shadowRoot.querySelector("[data-hr-source]")?.addEventListener("change",e=>{this.hrSource=e.target.value;this.draw();});
       this.shadowRoot.querySelectorAll('[data-action]').forEach(b=>b.addEventListener('click',()=>this.action(b.dataset.action)));
       this.shadowRoot.querySelectorAll('[data-set]').forEach(b=>b.addEventListener('click',()=>this.setTarget(b.dataset.set)));
       this.shadowRoot.querySelectorAll('[data-step-kind]').forEach(b=>
@@ -376,7 +379,19 @@
       this.shadowRoot.querySelector('[data-machine-runner]')?.classList.toggle("is-moving",this.moving(g));
       this.shadowRoot.querySelector('[data-protocol]').textContent="Protokoll: "+(this.value(g,"protocol")||"–");
       this.shadowRoot.querySelector('[data-arm]').textContent=type==="headwind"?"Fläktstyrning separat":(armed?"Styrning aktiverad":"Styrning låst");
-      this.shadowRoot.querySelectorAll('[data-metric]').forEach(el=>el.textContent=this.display(g,el.dataset.metric));
+      const hrSelect=this.shadowRoot.querySelector("[data-hr-source]");
+      const hrBands=Object.entries(groups).filter(([,v])=>this.deviceType(v)==="heart_rate_monitor");
+      if(hrSelect){
+        const options='<option value="">Träningsmaskinen</option>'+hrBands.map(([id,v])=>'<option value="'+esc(id)+'">'+esc(this.deviceName(v))+'</option>').join("");
+        if(hrSelect._options!==options){hrSelect.innerHTML=options;hrSelect._options=options;}
+        hrSelect.value=this.hrSource??hrBands[0]?.[0]??"";
+        const source=hrSelect.value?groups[hrSelect.value]:g;
+        const pulse=source&&this.value(source,"connected")==="on"?this.display(source,"heart_rate_bpm"):"–";
+        const battery=source&&this.value(source,"connected")==="on"?this.display(source,"battery_percent"):"–";
+        this.shadowRoot.querySelector("[data-hr-reading]").textContent=pulse+" bpm"+(hrSelect.value?" · Batteri "+battery+(battery==="–"?"":" %"):"");
+        this.shadowRoot.querySelectorAll('[data-metric="heart_rate_bpm"]').forEach(el=>el.textContent=pulse);
+      }
+      this.shadowRoot.querySelectorAll('[data-metric]:not([data-metric="heart_rate_bpm"])').forEach(el=>el.textContent=this.display(g,el.dataset.metric));
       this.shadowRoot.querySelectorAll('[data-action]').forEach(b=>{
         const e=g[b.dataset.action];
         b.disabled=!connected||!e||e.state==="unavailable"||

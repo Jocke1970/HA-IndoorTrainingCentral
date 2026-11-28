@@ -16,8 +16,11 @@ TARGET_BITS = {"speed": 0, "incline": 1, "resistance": 2, "power": 3}
 COMMANDS = {"speed": 0x02, "incline": 0x03, "resistance": 0x04, "power": 0x05}
 CAP_DEFAULTS = {"speed": 6.0, "incline": 5.0, "resistance": 10.0, "power": 200.0}
 PLATFORMS = ["sensor", "binary_sensor", "number", "button", "fan", "select"]
-MACHINE_OPTIONS = ("auto", "treadmill", "bike", "rower")
-PROFILE_OPTIONS = ("auto", "ftms", "homefitnesscode", "tacx_fec", "christopeit_wp5000", "wahoo_headwind")
+SERVICE_HRS = uuid("180d")
+HR_MEASUREMENT = uuid("2a37")
+BATTERY_LEVEL = uuid("2a19")
+MACHINE_OPTIONS = ("auto", "treadmill", "bike", "rower", "heart_rate_monitor")
+PROFILE_OPTIONS = ("auto", "ftms", "homefitnesscode", "tacx_fec", "christopeit_wp5000", "wahoo_headwind", "ble_hrs")
 
 TACX_FEC_SERVICE = "6e40fec1-b5a3-f393-e0a9-e50e24dcca9e"
 TACX_RX = "6e40fec3-b5a3-f393-e0a9-e50e24dcca9e"
