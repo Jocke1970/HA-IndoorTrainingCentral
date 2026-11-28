@@ -16,7 +16,7 @@ import re
 import time
 from uuid import uuid4
 
-from .fit_export import export_fit
+from .fit_export import export_fit, EXPORT_VERSION, validate_fit
 
 IDLE_FINISH_SECONDS = 15
 MAX_SESSION_SECONDS = 6 * 3600
@@ -181,38 +181,63 @@ def replay_session(path: Path) -> dict | None:
     }
 
 
+def write_metadata(target: Path, data: dict) -> None:
+    temporary = target.with_name(target.name + "." + uuid4().hex + ".tmp")
+    try:
+        temporary.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        temporary.replace(target)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
 def _write_summary(raw: Path) -> dict | None:
     summary = replay_session(raw)
     if summary is None:
         return None
+    target = raw.with_suffix(".summary.json")
+    if target.is_file():
+        try:
+            old = json.loads(target.read_text(encoding="utf-8"))
+            if isinstance(old.get("session_name"), str):
+                summary["session_name"] = old["session_name"]
+        except (OSError, ValueError):
+            pass
+    summary.setdefault("session_name", "Löpband")
     if summary.get("complete") and summary.get("elapsed_s", 0) > 0:
         try:
             summary["fit_file"] = export_fit(raw, summary).name
+            summary["fit_export_version"] = EXPORT_VERSION
+            summary["fit_profile"] = "native"
+            summary["fit_available"] = True
+            summary["raw_available"] = True
         except (OSError, ValueError, TypeError, OverflowError) as err:
             summary["fit_error"] = str(err)[:160]
-    target = raw.with_suffix(".summary.json")
-    temporary = target.with_suffix(".summary.json.tmp")
-    temporary.write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    temporary.replace(target)
+    write_metadata(target, summary)
     return summary
 
 
 def _recover(directory: Path) -> list[dict]:
     directory.mkdir(parents=True, exist_ok=True)
-    raw_files = sorted(directory.glob("*.jsonl"), reverse=True)
+    ids = {p.stem for p in directory.glob("*.jsonl")}
+    ids.update(p.name.removesuffix(".summary.json") for p in directory.glob("*.summary.json"))
     result = []
-    for path in raw_files[:KEEP_HISTORY]:
-        summary_path = path.with_suffix(".summary.json")
+    for session_id in sorted(ids, reverse=True):
+        path = directory / (session_id + ".jsonl")
+        summary_path = directory / (session_id + ".summary.json")
         try:
-            if summary_path.is_file():
-                summary = json.loads(summary_path.read_text(encoding="utf-8"))
-                if "met_method" not in summary or (summary.get("complete") and not path.with_suffix(".fit").is_file()):
-                    summary = _write_summary(path)
-            else:
+            summary = json.loads(summary_path.read_text(encoding="utf-8")) if summary_path.is_file() else None
+            if path.is_file() and (not summary or "met_method" not in summary
+                    or (summary.get("complete") and (summary.get("fit_export_version") != EXPORT_VERSION
+                        or not path.with_suffix(".fit").is_file()))):
                 summary = _write_summary(path)
             if summary:
+                summary["raw_available"] = path.is_file()
+                fit = path.with_suffix(".fit")
+                summary["fit_available"] = fit.is_file() and validate_fit(fit.read_bytes())
                 result.append(summary)
-        except (OSError, ValueError):
+            if len(result) >= KEEP_HISTORY:
+                break
+        except (OSError, ValueError, TypeError):
             continue
     return result[:KEEP_HISTORY]
 
