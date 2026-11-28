@@ -319,24 +319,33 @@ class WorkoutJournal:
         self._saves: set[asyncio.Task] = set()
 
     async def async_prepare(self) -> None:
-        self.fit_profile = await asyncio.to_thread(self._load_profile)
+        self.fit_profile, idle = await asyncio.to_thread(self._load_settings)
+        self.activity_monitor.idle_seconds = idle
         self.history = await asyncio.to_thread(_recover, self.directory, self.fit_profile)
         self._worker = asyncio.create_task(self._write_loop())
 
-    def _load_profile(self):
+    def _load_settings(self):
         try:
-            profile = json.loads((self.directory / "settings.json").read_text(encoding="utf-8")).get("fit_profile")
-            return profile if profile in PROFILES else "native"
+            settings = json.loads((self.directory / "settings.json").read_text(encoding="utf-8"))
+            profile = settings.get("fit_profile")
+            idle = settings.get("idle_seconds", 15)
+            return (profile if profile in PROFILES else "native",
+                    idle if type(idle) is int and 5 <= idle <= 300 else 15)
         except (OSError, ValueError, TypeError, AttributeError):
-            return "native"
+            return "native", 15
 
-    async def set_fit_profile(self, profile):
-        if profile not in PROFILES:
-            raise ValueError("Invalid FIT profile")
+    async def set_fit_profile(self, profile=None, idle_seconds=None):
         async with self._settings_lock:
+            profile = self.fit_profile if profile is None else profile
+            idle = self.activity_monitor.idle_seconds if idle_seconds is None else idle_seconds
+            if profile not in PROFILES or type(idle) is not int or not 5 <= idle <= 300:
+                raise ValueError("Invalid workout settings")
+            if self.active and idle != self.activity_monitor.idle_seconds:
+                raise ValueError("Cannot change inactivity threshold during workout")
             await asyncio.to_thread(write_metadata, self.directory / "settings.json",
-                                    {"fit_profile": profile, "retain_raw": True})
+                                    {"fit_profile": profile, "retain_raw": True, "idle_seconds": idle})
             self.fit_profile = profile
+            self.activity_monitor.idle_seconds = idle
 
     def _enqueue(self, path: Path, item: dict) -> bool:
         if self._queue.full():
