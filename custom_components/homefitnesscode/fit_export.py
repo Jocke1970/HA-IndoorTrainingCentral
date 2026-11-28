@@ -131,7 +131,7 @@ def export_fit(raw, summary, *, profile="native", target=None):
     for number, name, unit in ((0,"met","MET"),(1,"average_met","MET"),
                                (2,"max_met","MET"),(3,"met_minutes","MET-min")):
         w.message(8,206,[(0,U8),(1,U8),(2,U8),(3,STRING,32),(8,STRING,16)],
-                  [0,number,FLOAT,name,unit])
+                  [0,number,FLOAT & 0x1f,name,unit])
     event = [(253, U32), (0, ENUM), (1, ENUM)]
     w.message(1, 21, event, [start, 0, 0])
     fields = [(253, U32), (3, U8), (5, U32), (6, U16), (9, S16)]
