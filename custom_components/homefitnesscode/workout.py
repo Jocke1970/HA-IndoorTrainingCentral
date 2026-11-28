@@ -10,6 +10,7 @@ import asyncio
 from collections import deque
 from datetime import datetime, timezone
 import json
+import math
 from pathlib import Path
 import re
 import time
@@ -25,6 +26,54 @@ SCHEMA = 1
 
 METRICS = ("speed_kmh", "distance_km", "elapsed_s", "incline_percent",
            "energy_kcal", "heart_rate_bpm", "power_w")
+
+
+class MetAccumulator:
+    """Estimated gross MET from treadmill speed and grade; never bridge stale data."""
+    def __init__(self):
+        self.previous = None
+        self.current = None
+        self.peak = None
+        self.seconds = 0.0
+        self.integral = 0.0
+
+    def add(self, timestamp, values):
+        speed = values.get("speed_kmh")
+        grade = values.get("incline_percent")
+        if not all(isinstance(v, (int, float)) and not isinstance(v, bool)
+                   and math.isfinite(v) for v in (speed, grade)):
+            self.previous = None
+            self.current = None
+            return
+        if not 0 <= speed <= 30 or not 0 <= grade <= 30:
+            self.previous = None
+            self.current = None
+            return
+        if self.previous is not None:
+            old_time, old_met = self.previous
+            dt = timestamp - old_time
+            if 0 < dt <= 5 and old_met is not None:
+                self.seconds += dt
+                self.integral += old_met * dt
+        if speed <= 0.2:
+            met = None
+        else:
+            metres_min = speed * 1000 / 60
+            horizontal, vertical = (0.1, 1.8) if speed < 8 else (0.2, 0.9)
+            met = (3.5 + metres_min * (horizontal + vertical * grade / 100)) / 3.5
+            self.peak = met if self.peak is None else max(self.peak, met)
+        self.current = met
+        self.previous = (timestamp, met)
+
+    def metrics(self):
+        return {
+            "current_met": round(self.current, 2) if self.current is not None else None,
+            "average_met": round(self.integral / self.seconds, 2) if self.seconds else None,
+            "max_met": round(self.peak, 2) if self.peak is not None else None,
+            "met_minutes": round(self.integral / 60, 2),
+            "met_coverage_s": round(self.seconds, 2),
+            "met_method": "acsm_estimate_speed_switch_8_kmh",
+        }
 
 
 def utc_now() -> str:
@@ -46,6 +95,7 @@ def _append_rows(path: Path, rows: list[dict]) -> None:
 
 def replay_session(path: Path) -> dict | None:
     """Derive a finished/incomplete workout from persisted wire frames."""
+    met = MetAccumulator()
     started = None
     finished = None
     samples = 0
@@ -76,6 +126,13 @@ def replay_session(path: Path) -> dict | None:
                     continue
                 if row.get("characteristic", "").lower().endswith("2acd-0000-1000-8000-00805f9b34fb"):
                     samples += 1
+                    if started and row.get("direction") == "rx":
+                        try:
+                            ts = datetime.fromisoformat(row["timestamp"])
+                            if ts >= datetime.fromisoformat(started["timestamp"]):
+                                met.add(ts.timestamp(), decoded)
+                        except (KeyError, ValueError, TypeError):
+                            pass
                     bpm = decoded.get("heart_rate_bpm")
                     if isinstance(bpm, (int, float)) and 0 < bpm <= 255:
                         machine_hr.append(bpm)
@@ -115,6 +172,7 @@ def replay_session(path: Path) -> dict | None:
         "average_heart_rate_bpm": round(sum(hr) / len(hr), 1) if hr else None,
         "heart_rate_samples": len(hr),
         "heart_rate_source": started.get("hr_source_name") or "training_machine",
+        **met.metrics(),
         "raw_frames": samples,
         "raw_bytes": bytes_read,
         "file": path.name,
@@ -164,6 +222,7 @@ class WorkoutJournal:
         self.started_at: str | None = None
         self.hr_source_id = None
         self.hr_source_name = None
+        self._met = MetAccumulator()
         self._start_mono = 0.0
         self._last_moving = 0.0
         self._last_elapsed = 0.0
@@ -230,6 +289,7 @@ class WorkoutJournal:
         self.finalizing = False
         self.error = None
         self.started_at = timestamp
+        self._met = MetAccumulator()
         self._start_mono = now
         self._last_moving = now
         self._last_elapsed = 0.0
@@ -271,6 +331,7 @@ class WorkoutJournal:
             # instantly create another session while belt is still moving.
             if is_treadmill and speed > 0.2 and not self._await_stationary:
                 self._start(now, timestamp)
+                self._met.add(now, values)
             return
         if self.path is None:
             return
@@ -278,6 +339,7 @@ class WorkoutJournal:
             self.close("write_queue_full")
             return
         if is_treadmill:
+            self._met.add(now, values)
             for key in METRICS:
                 v = values.get(key)
                 if isinstance(v, (int, float)) and not isinstance(v, bool):
@@ -352,6 +414,7 @@ class WorkoutJournal:
             "elapsed_s": round(self._maxima.get("elapsed_s", 0)) if self.active else 0,
             "raw_bytes": self._bytes_queued if self.active else 0,
             "raw_path": str(self.path) if self.active and self.path else None,
+            **(self._met.metrics() if self.active else MetAccumulator().metrics()),
             "recent": self.history[:8],
             "storage_directory": str(self.directory),
         }
