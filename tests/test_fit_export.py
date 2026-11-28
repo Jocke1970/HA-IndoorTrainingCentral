@@ -47,7 +47,8 @@ def test_activity_sdk(tmp_path, profile):
     assert record["heart_rate"] == 90
     assert record["speed"] == pytest.approx(1)
     assert record["grade"] == pytest.approx(2)
-    assert messages["hrv_mesgs"][0]["time"][0] == pytest.approx(.667)
+    rr = messages["hrv_mesgs"][0]["time"]
+    assert (rr[0] if isinstance(rr, list) else rr) == pytest.approx(.667)
     damaged = bytearray(target.read_bytes())
     damaged[20] ^= 1
     assert not fit.validate_fit(damaged)
