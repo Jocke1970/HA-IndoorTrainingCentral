@@ -107,6 +107,31 @@ def replay_session(path: Path) -> dict | None:
     last_positive_time = None
     last_movement = None
     bytes_read = 0
+    pauses = []
+    pause_start = None
+    with path.open(encoding="utf-8") as file:
+        for line in file:
+            try:
+                row = json.loads(line)
+                if row.get("type") == "session_pause" and pause_start is None:
+                    pause_start = datetime.fromisoformat(row["timestamp"])
+                elif row.get("type") == "session_resume" and pause_start is not None:
+                    resume = datetime.fromisoformat(row["timestamp"])
+                    if resume >= pause_start:
+                        pauses.append((pause_start, resume))
+                    pause_start = None
+            except (ValueError, KeyError, TypeError):
+                continue
+
+    def excluded(row):
+        try:
+            ts = datetime.fromisoformat(row["timestamp"])
+            return (any(a <= ts < b for a,b in pauses)
+                    or (pause_start is not None and ts >= pause_start)
+                    or (started and started.get("timestamp") and ts < datetime.fromisoformat(started["timestamp"])))
+        except (ValueError, KeyError, TypeError):
+            return False
+
     with path.open(encoding="utf-8") as file:
         for line in file:
             bytes_read += len(line.encode("utf-8"))
@@ -119,6 +144,8 @@ def replay_session(path: Path) -> dict | None:
             elif row.get("type") == "session_end":
                 finished = row
             elif row.get("type") == "heart_rate":
+                if excluded(row):
+                    continue
                 bpm = row.get("bpm")
                 if isinstance(bpm, (int, float)) and 0 < bpm <= 255:
                     external_hr.append(bpm)
@@ -128,6 +155,10 @@ def replay_session(path: Path) -> dict | None:
                     continue
                 if row.get("characteristic", "").lower().endswith("2acd-0000-1000-8000-00805f9b34fb"):
                     samples += 1
+                    if excluded(row):
+                        met.previous = None
+                        met.current = None
+                        continue
                     if started and row.get("direction") == "rx":
                         try:
                             ts = datetime.fromisoformat(row["timestamp"])
@@ -154,6 +185,16 @@ def replay_session(path: Path) -> dict | None:
                               datetime.fromisoformat(started["timestamp"])).total_seconds())
         except (ValueError, TypeError):
             pass
+    wall_elapsed = elapsed
+    if pauses or pause_start is not None:
+        try:
+            start_dt = datetime.fromisoformat(started["timestamp"])
+            end_dt = pause_start or datetime.fromisoformat((finished or {}).get("timestamp") or last_movement)
+            # FIT timestamps use whole seconds; keep summaries aligned.
+            wall_elapsed = int(end_dt.timestamp()) - int(start_dt.timestamp())
+            elapsed = max(0, wall_elapsed - sum(int(b.timestamp())-int(a.timestamp()) for a,b in pauses))
+        except (ValueError, KeyError, TypeError):
+            pass
     hr = external_hr if external_hr else machine_hr if not started.get("hr_source_id") else []
     return {
         "id": path.stem,
@@ -167,6 +208,8 @@ def replay_session(path: Path) -> dict | None:
         "average_speed_kmh": round(maxima.get("distance_km", 0) * 3600 / elapsed, 2)
         if elapsed > 0 else 0,
         "elapsed_s": round(elapsed),
+        "total_elapsed_s": round(wall_elapsed),
+        "paused_s": max(0, round(wall_elapsed - elapsed)),
         "energy_kcal": round(maxima.get("energy_kcal", 0), 1),
         "max_speed_kmh": round(maxima.get("speed_kmh", 0), 2),
         "max_incline_percent": round(maxima.get("incline_percent", 0), 2),
@@ -450,8 +493,12 @@ class WorkoutJournal:
         self.pause_pending = False
 
     def tick(self) -> None:
-        if self.active and time.monotonic() - self._last_moving >= IDLE_FINISH_SECONDS:
-            self._offer_pause()
+        if self.active:
+            now = time.monotonic()
+            if now - self._start_mono >= MAX_SESSION_SECONDS:
+                self.close("duration_limit")
+            elif now - self._last_moving >= IDLE_FINISH_SECONDS:
+                self._offer_pause()
 
     def close(self, reason: str = "manual") -> None:
         if not self.active:
