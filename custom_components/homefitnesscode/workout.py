@@ -252,6 +252,9 @@ class WorkoutJournal:
         self.fit_profile = "native"
         self._settings_lock = asyncio.Lock()
         self.active = False
+        self.paused = False
+        self.pause_pending = False
+        self._stationary_at = None
         self.finalizing = False
         self.error: str | None = None
         self.path: Path | None = None
@@ -338,6 +341,9 @@ class WorkoutJournal:
         filename = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + uuid4().hex[:8] + ".jsonl"
         self.path = self.directory / filename
         self.active = True
+        self.paused = False
+        self.pause_pending = False
+        self._stationary_at = None
         self.finalizing = False
         self.error = None
         self.started_at = timestamp
@@ -387,6 +393,14 @@ class WorkoutJournal:
             return
         if self.path is None:
             return
+        if is_treadmill and "speed_kmh" in values:
+            if speed > 0.2:
+                if self.paused:
+                    self._enqueue(self.path, {"type": "session_resume", "timestamp": timestamp})
+                    self.paused = self.pause_pending = False
+                self._stationary_at = None
+            elif self._stationary_at is None:
+                self._stationary_at = timestamp
         if not self._enqueue(self.path, frame):
             self.close("write_queue_full")
             return
@@ -409,11 +423,11 @@ class WorkoutJournal:
             elif self._bytes_queued >= MAX_SESSION_BYTES:
                 self.close("size_limit")
             elif speed <= 0.2 and now - self._last_moving >= IDLE_FINISH_SECONDS:
-                self.close("stopped")
+                self._offer_pause()
 
     def record_heart_rate(self, source_id, bpm, rr_ms=None):
         """Store only live notifications from the selected source during motion."""
-        if (not self.active or self.path is None or source_id != self.hr_source_id
+        if (not self.active or self.paused or self.path is None or source_id != self.hr_source_id
                 or time.monotonic() - self._last_moving > 5
                 or not isinstance(bpm, (int, float)) or not 0 < bpm <= 255):
             return
@@ -423,14 +437,27 @@ class WorkoutJournal:
         elif self._bytes_queued >= MAX_SESSION_BYTES:
             self.close("size_limit")
 
+    def _offer_pause(self):
+        if not self.active or self.paused or self.path is None:
+            return
+        if self._stationary_at is None:
+            # Missing telemetry is not confirmed stationary motion.
+            return
+        if self._enqueue(self.path, {"type": "session_pause", "timestamp": self._stationary_at}):
+            self.paused = self.pause_pending = True
+
+    def keep_paused(self):
+        self.pause_pending = False
+
     def tick(self) -> None:
         if self.active and time.monotonic() - self._last_moving >= IDLE_FINISH_SECONDS:
-            self.close("stopped")
+            self._offer_pause()
 
     def close(self, reason: str = "manual") -> None:
         if not self.active:
             return
         self.active = False
+        self.paused = self.pause_pending = False
         self.finalizing = True
         self._await_stationary = reason in ("manual", "size_limit", "duration_limit")
         if self.path is None:
@@ -457,6 +484,8 @@ class WorkoutJournal:
     def status(self) -> dict:
         return {
             "active": self.active,
+            "paused": self.paused,
+            "pause_pending": self.pause_pending,
             "hr_source_id": self.hr_source_id,
             "hr_source_name": self.hr_source_name,
             "saving": self.finalizing,
