@@ -12,7 +12,7 @@ from uuid import UUID
 EPOCH = datetime(1989, 12, 31, tzinfo=timezone.utc)
 U8, U16, U32, S16, ENUM = 2, 0x84, 0x86, 0x83, 0
 STRING, BYTE, FLOAT = 7, 13, 0x88
-EXPORT_VERSION = 5
+EXPORT_VERSION = 6
 PROFILES = {"native": (255, 1, "HA-IndoorTrainingCentral"),
             "fenix7pro": (1, 4375, "fenix 7 Pro")}
 FORMATS = {U8: ("B", 255), U16: ("H", 65535), U32: ("I", 4294967295),
@@ -93,6 +93,9 @@ def export_fit(raw, summary, *, profile="native", target=None):
     if duration <= 0:
         raise ValueError("FIT requires positive training time")
     end = start + duration
+    pauses = []
+    pause_start = None
+    session_end = None
     buckets = {}
     rr_buckets = {}
     external = summary.get("heart_rate_source") != "training_machine"
@@ -103,7 +106,18 @@ def export_fit(raw, summary, *, profile="native", target=None):
                 stamp = fit_time(row["timestamp"])
             except (ValueError, KeyError, TypeError):
                 continue
-            if not start <= stamp <= end:
+            if stamp < start:
+                continue
+            kind = row.get("type")
+            if kind == "session_pause" and pause_start is None:
+                pause_start = stamp
+            elif kind == "session_resume" and pause_start is not None:
+                if stamp >= pause_start:
+                    pauses.append((pause_start, stamp))
+                pause_start = None
+            elif kind == "session_end":
+                session_end = stamp
+            if kind in ("session_pause", "session_resume", "session_end"):
                 continue
             if row.get("type") == "heart_rate" and external:
                 buckets.setdefault(stamp, {})["heart_rate_bpm"] = row.get("bpm")
@@ -117,6 +131,20 @@ def export_fit(raw, summary, *, profile="native", target=None):
                 for key in ("speed_kmh", "distance_km", "incline_percent", "heart_rate_bpm"):
                     if key in values and not (external and key == "heart_rate_bpm"):
                         bucket[key] = values[key]
+    if pause_start is not None:
+        end = pause_start
+    elif pauses:
+        end = session_end if session_end is not None else max(buckets, default=start)
+    if pauses or pause_start is not None:
+        end = max(start, end)
+        pauses = [(max(start,a), min(end,b)) for a,b in pauses if start <= a < b <= end]
+        duration = end - start - sum(b-a for a,b in pauses)
+    elapsed = end - start
+    if duration <= 0:
+        raise ValueError("FIT requires positive active time")
+    def included(stamp):
+        return start <= stamp <= end and not any(a <= stamp < b for a,b in pauses) and (pause_start is None or stamp < pause_start)
+    buckets = {t:v for t,v in buckets.items() if included(t)}
     if not any(any(v.get(k) is not None for k in ("speed_kmh", "distance_km", "heart_rate_bpm", "incline_percent")) for v in buckets.values()):
         raise ValueError("FIT requires at least one valid record")
     from garmin_fit_sdk import Encoder, Decoder, Stream, Profile, BASE_TYPE
@@ -142,7 +170,13 @@ def export_fit(raw, summary, *, profile="native", target=None):
     for desc in descriptions.values():
         write("FIELD_DESCRIPTION", **desc["field_description_mesg"])
     write("EVENT", timestamp=start, event="timer", event_type="start")
+    pending = iter(pauses)
+    next_pause = next(pending, None)
     for stamp,v in sorted(buckets.items()):
+        while next_pause is not None and next_pause[1] <= stamp:
+            write("EVENT", timestamp=next_pause[0], event="timer", event_type="stop_all")
+            write("EVENT", timestamp=next_pause[1], event="timer", event_type="start")
+            next_pause = next(pending, None)
         speed, grade = v.get("speed_kmh"), v.get("incline_percent")
         met = None
         if isinstance(speed,(int,float)) and isinstance(grade,(int,float)) and 0.2 < speed <= 30 and 0 <= grade <= 30:
@@ -156,11 +190,15 @@ def export_fit(raw, summary, *, profile="native", target=None):
               distance=v["distance_km"]*1000 if v.get("distance_km") is not None else None,
               speed=speed/3.6 if speed is not None else None, grade=grade,
               developer_fields={0:met} if met is not None else None)
+    while next_pause is not None:
+        write("EVENT", timestamp=next_pause[0], event="timer", event_type="stop_all")
+        write("EVENT", timestamp=next_pause[1], event="timer", event_type="start")
+        next_pause = next(pending, None)
     write("EVENT", timestamp=end, event="timer", event_type="stop_all")
-    common = dict(timestamp=end, start_time=start, total_elapsed_time=duration, total_timer_time=duration,
+    common = dict(timestamp=end, start_time=start, total_elapsed_time=elapsed, total_timer_time=duration,
                   total_distance=summary.get("distance_km",0)*1000,
                   total_calories=scaled(summary.get("energy_kcal")),
-                  avg_speed=summary.get("average_speed_kmh",0)/3.6,
+                  avg_speed=summary.get("distance_km",0)*1000/duration,
                   max_speed=summary.get("max_speed_kmh",0)/3.6,
                   avg_heart_rate=scaled(summary.get("average_heart_rate_bpm")),
                   max_heart_rate=scaled(summary.get("max_heart_rate_bpm")) or None,
