@@ -297,6 +297,7 @@
         '<div class="workout-content"><div class="workout-note" data-workout-status>Hämtar passinformation…</div>'+
         '<div class="actions"><button type="button" data-workout-save disabled>Avsluta och spara pass</button></div>'+
         '<label class="workout-note">FIT-exportprofil <select data-fit-profile><option value="native">HA-ITC Native</option><option value="fenix7pro">Garmin fēnix 7 Pro</option></select></label>'+ 
+        '<label class="workout-note">Paus efter inaktivitet (sekunder) <input data-idle-seconds type="number" min="5" max="300" step="1" value="15"></label>'+ 
         '<p class="workout-note">JSONL behålls under betafasen.</p>'+
         '<div class="workout-history" data-workout-history></div>'+
         '<div class="workout-note" data-workout-path></div>'+
@@ -350,6 +351,9 @@
         b.addEventListener('click',()=>this.captureAction(b.dataset.captureAction)));
       this.shadowRoot.querySelector('[data-workout-save]')?.addEventListener('click',()=>this.saveWorkout());
       this.shadowRoot.querySelector('[data-fit-profile]')?.addEventListener('change',e=>this.updateWorkout("fit_settings",{profile:e.target.value}));
+      this.shadowRoot.querySelector('[data-idle-seconds]')?.addEventListener('change',e=>{
+        if(e.target.reportValidity()&&e.target.value!=="")this.updateWorkout("fit_settings",{idle_seconds:Number(e.target.value)});
+      });
       this.paintCapture();
       this.paintWorkout();
       this.signature=key+':'+type+':'+this.visibleDeviceIds(groups).join(',')+':'+Object.keys(groups[key]).sort().join(',')+':'+this.fans().map(([id])=>id).join(',');
@@ -478,7 +482,7 @@
       if(s?.pause_pending&&!dialog){
         dialog=document.createElement("dialog");
         dialog.dataset.pauseDialog="";
-        dialog.innerHTML='<h3>Träningspass pausat</h3><p>Löpbandet har stått stilla i 15 sekunder. Vill du fortsätta senare?</p><div class="actions"><button data-keep>Behåll pausat</button><button data-finish>Avsluta och spara</button></div>';
+        dialog.innerHTML='<h3>Träningspass pausat</h3><p>Ingen aktivitet har registrerats på '+esc(s.idle_seconds||15)+' sekunder. Vill du fortsätta senare?</p><div class="actions"><button data-keep>Behåll pausat</button><button data-finish>Avsluta och spara</button></div>';
         node.parentNode.append(dialog);
         dialog.addEventListener("cancel",e=>e.preventDefault());
         dialog.querySelector("[data-keep]").onclick=()=>this.updateWorkout("keep_paused",{});
@@ -489,6 +493,8 @@
       if(btn)btn.disabled=busy||!s?.active;
       const profile=this.shadowRoot.querySelector('[data-fit-profile]');
       if(profile){profile.value=s?.fit_profile||"native";profile.disabled=busy||!s;}
+      const idle=this.shadowRoot.querySelector('[data-idle-seconds]');
+      if(idle){if(this.shadowRoot.activeElement!==idle)idle.value=s?.idle_seconds||15;idle.disabled=busy||!s||!!s.active;}
       const history=this.shadowRoot.querySelector('[data-workout-history]');
       if(history){
         const sessions=s?.recent||[];
