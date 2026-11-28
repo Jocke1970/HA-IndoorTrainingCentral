@@ -310,7 +310,7 @@
         '<section class="panel"><h3>Träningspass och FIT</h3><div class="workout-content">'+
         '<label class="workout-note">FIT-exportprofil <select data-fit-profile><option value="native">HA-ITC Native</option><option value="fenix7pro">Garmin fēnix 7 Pro</option></select></label>'+
         '<label class="workout-note">Paus efter inaktivitet (sekunder) <input data-idle-seconds type="number" min="5" max="300" step="1" value="15"></label>'+
-        '<p class="workout-note">JSONL behålls under betafasen.</p><div class="workout-note" data-workout-path></div></div></section>':"";
+        '<label class="workout-note"><input type="checkbox" data-retain-raw checked> Behåll rådata (JSONL)</label><p class="workout-note">Avmarkera för framtida pass: rådata tas bort först efter verifierad FIT-export. Befintliga filer påverkas inte. Utan JSONL kan passet inte exporteras på nytt med annan profil.</p><div class="workout-note" data-workout-path></div></div></section>':"";
       const capturePanel='<details class="panel capture" data-capture><summary>🔍 Protocol Capture</summary>'+
         '<div class="capture-content"><p class="note">Manuell rådatainspelning för analys (högst 10 minuter, 3 000 paket eller 750 kB). Ingen påverkan på maskinens styrning.</p>'+
         '<div class="capture-detail" data-capture-status role="status" aria-live="polite">Hämtar status…</div>'+
@@ -367,6 +367,7 @@
       this.shadowRoot.querySelector('[data-idle-seconds]')?.addEventListener('change',e=>{
         if(e.target.reportValidity()&&e.target.value!=="")this.updateWorkout("fit_settings",{idle_seconds:Number(e.target.value)});
       });
+      this.shadowRoot.querySelector('[data-retain-raw]')?.addEventListener('change',e=>{if(!e.target.checked&&!window.confirm('Framtida färdiga pass behåller endast FIT och sammanfattning. Vill du fortsätta?')){e.target.checked=true;return;}this.updateWorkout('fit_settings',{retain_raw:e.target.checked});});
       this.paintCapture();
       this.paintWorkout();
       this.signature=key+':'+type+':'+this.visibleDeviceIds(groups).join(',')+':'+Object.keys(groups[key]).sort().join(',')+':'+this.fans().map(([id])=>id).join(',');
@@ -547,6 +548,8 @@
       if(profile){profile.value=s?.fit_profile||"native";profile.disabled=busy||!s;}
       const idle=this.shadowRoot.querySelector('[data-idle-seconds]');
       if(idle){if(this.shadowRoot.activeElement!==idle)idle.value=s?.idle_seconds||15;idle.disabled=busy||!s||!!s.active;}
+      const retention=this.shadowRoot.querySelector('[data-retain-raw]');
+      if(retention){retention.checked=s?.retain_raw!==false;retention.disabled=busy||!s||!!s.active||!!s.saving;}
       const history=this.shadowRoot.querySelector('[data-workout-history]');
       if(history){
         const sessions=s?.recent||[];
