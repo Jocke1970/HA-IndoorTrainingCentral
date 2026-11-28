@@ -35,6 +35,7 @@ def test_activity_sdk(tmp_path, profile):
     assert fit.validate_fit(target.read_bytes())
     decoder = Decoder(Stream.from_file(str(target)))
     assert decoder.check_integrity()
+    decoder = Decoder(Stream.from_file(str(target)))
     messages, errors = decoder.read()
     assert not errors, errors
     for name in ("file_id_mesgs", "activity_mesgs", "session_mesgs", "lap_mesgs", "record_mesgs", "hrv_mesgs"):
