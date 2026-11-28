@@ -1,8 +1,12 @@
 import importlib.util
+import sys
+import types
 import json
 from pathlib import Path
 
-spec = importlib.util.spec_from_file_location("workout_hr", Path(__file__).parents[1] / "custom_components/homefitnesscode/workout.py")
+package = sys.modules.setdefault("itc_test_package", types.ModuleType("itc_test_package"))
+package.__path__ = [str(Path(__file__).parents[1] / "custom_components/homefitnesscode")]
+spec = importlib.util.spec_from_file_location("itc_test_package.workout_hr", Path(__file__).parents[1] / "custom_components/homefitnesscode/workout.py")
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 
