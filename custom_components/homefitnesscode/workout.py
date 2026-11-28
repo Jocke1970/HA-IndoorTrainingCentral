@@ -16,6 +16,7 @@ import re
 import time
 from uuid import uuid4
 
+from .activity import ActivityMonitor
 from .fit_export import export_fit, EXPORT_VERSION, validate_fit, PROFILES
 
 IDLE_FINISH_SECONDS = 15
@@ -297,7 +298,7 @@ class WorkoutJournal:
         self.active = False
         self.paused = False
         self.pause_pending = False
-        self._stationary_at = None
+        self.activity_monitor = ActivityMonitor()
         self.finalizing = False
         self.error: str | None = None
         self.path: Path | None = None
@@ -386,7 +387,6 @@ class WorkoutJournal:
         self.active = True
         self.paused = False
         self.pause_pending = False
-        self._stationary_at = None
         self.finalizing = False
         self.error = None
         self.started_at = timestamp
@@ -424,26 +424,24 @@ class WorkoutJournal:
         is_treadmill = (direction == "rx" and
                         characteristic.lower().endswith("2acd-0000-1000-8000-00805f9b34fb"))
         speed = float(values.get("speed_kmh") or 0) if is_treadmill else 0
+        moving = self.activity_monitor.observe(now, timestamp, values) if is_treadmill else None
         if not self.active:
             self._preroll.append(frame)
-            if is_treadmill and speed <= 0.2:
+            if moving is False:
                 self._await_stationary = False
             # Only physical movement starts a pass. Manual stop must not
             # instantly create another session while belt is still moving.
-            if is_treadmill and speed > 0.2 and not self._await_stationary:
+            if moving is True and not self._await_stationary:
                 self._start(now, timestamp)
                 self._met.add(now, values)
             return
         if self.path is None:
             return
-        if is_treadmill and "speed_kmh" in values:
-            if speed > 0.2:
-                if self.paused:
-                    self._enqueue(self.path, {"type": "session_resume", "timestamp": timestamp})
-                    self.paused = self.pause_pending = False
-                self._stationary_at = None
-            elif self._stationary_at is None:
-                self._stationary_at = timestamp
+        if moving is True and self.paused:
+            if not self._enqueue(self.path, {"type": "session_resume", "timestamp": timestamp}):
+                self.close("write_queue_full")
+                return
+            self.paused = self.pause_pending = False
         if not self._enqueue(self.path, frame):
             self.close("write_queue_full")
             return
@@ -457,7 +455,7 @@ class WorkoutJournal:
             distance = float(values.get("distance_km") or 0)
             # Elapsed time can continue increasing when a belt is stationary:
             # do not confuse that with actual treadmill movement.
-            if speed > 0.2 or distance > self._last_dist:
+            if moving is True:
                 self._last_moving = now
             self._last_elapsed = max(elapsed, self._last_elapsed)
             self._last_dist = max(distance, self._last_dist)
@@ -465,7 +463,7 @@ class WorkoutJournal:
                 self.close("duration_limit")
             elif self._bytes_queued >= MAX_SESSION_BYTES:
                 self.close("size_limit")
-            elif speed <= 0.2 and now - self._last_moving >= IDLE_FINISH_SECONDS:
+            elif self.activity_monitor.inactive(now):
                 self._offer_pause()
 
     def record_heart_rate(self, source_id, bpm, rr_ms=None):
@@ -483,10 +481,10 @@ class WorkoutJournal:
     def _offer_pause(self):
         if not self.active or self.paused or self.path is None:
             return
-        if self._stationary_at is None:
+        if self.activity_monitor.idle_timestamp is None:
             # Missing telemetry is not confirmed stationary motion.
             return
-        if self._enqueue(self.path, {"type": "session_pause", "timestamp": self._stationary_at}):
+        if self._enqueue(self.path, {"type": "session_pause", "timestamp": self.activity_monitor.idle_timestamp}):
             self.paused = self.pause_pending = True
 
     def keep_paused(self):
@@ -497,7 +495,7 @@ class WorkoutJournal:
             now = time.monotonic()
             if now - self._start_mono >= MAX_SESSION_SECONDS:
                 self.close("duration_limit")
-            elif now - self._last_moving >= IDLE_FINISH_SECONDS:
+            elif self.activity_monitor.inactive(now):
                 self._offer_pause()
 
     def close(self, reason: str = "manual") -> None:
@@ -533,6 +531,7 @@ class WorkoutJournal:
             "active": self.active,
             "paused": self.paused,
             "pause_pending": self.pause_pending,
+            "idle_seconds": self.activity_monitor.idle_seconds,
             "hr_source_id": self.hr_source_id,
             "hr_source_name": self.hr_source_name,
             "saving": self.finalizing,
