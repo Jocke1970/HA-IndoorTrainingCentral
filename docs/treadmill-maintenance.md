@@ -1,0 +1,3 @@
+# Treadmill maintenance (backend groundwork)
+
+Manual: factory lubricated; <3 h/week: 60 days; 3–5 h/week: 45 days; >5 h/week: 30 days. Rolling 28-day average (four weeks, including zero days). First observed movement starts the calendar baseline; no fictional lubrication record. Runtime counts only bounded gaps between moving telemetry samples, so unobserved operation is excluded. Persist per-entry counters and acknowledgement history using HA Store. Warning latches at five days remaining. UI, native entities, initial date correction, notification delivery and integration tests remain TODO. Existing installations have no historical backfill yet.

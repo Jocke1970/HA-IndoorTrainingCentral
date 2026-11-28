@@ -16,6 +16,9 @@ from .capture import ProtocolCapture
 from .workout import WorkoutJournal
 from .entity_catalog import inferred_machine
 from .activity import observed_session_status
+from .maintenance import Maintenance
+from homeassistant.helpers.storage import Store
+from homeassistant.util import dt as dt_util
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -38,19 +41,50 @@ class HFCState(DataUpdateCoordinator[dict[str, Any]]):
                      "machine_type": initial_kind,
                      "protocol": entry.data.get("profile", "auto")}
         self.targets: dict[str, float] = {}
+        self.maintenance = Maintenance()
+        self._maintenance_store = Store(hass, 1, f'{DOMAIN}.maintenance.{entry.entry_id}')
+        self._maintenance_loaded = False
+
+    async def async_prepare_maintenance(self):
+        self.maintenance = Maintenance(await self._maintenance_store.async_load())
+        self._maintenance_loaded = True
+
+    def _maintenance_snapshot(self):
+        return self.maintenance.snapshot(dt_util.now().date())
+
+    def _schedule_maintenance_save(self):
+        self._maintenance_store.async_delay_save(lambda: self.maintenance.data, 15)
+
+    async def acknowledge_lubrication(self):
+        if self.data.get('machine_type') != 'treadmill' or not self._maintenance_loaded:
+            raise ValueError('Treadmill maintenance not available')
+        self.maintenance.acknowledge(dt_util.now().date())
+        await self._maintenance_store.async_save(self.maintenance.data)
+        self.async_set_updated_data({**self.data, **self._maintenance_snapshot()})
 
     def _received(self, values: dict[str, Any]) -> None:
         machine = self.transport.machine_type or self.data["machine_type"]
         status = observed_session_status(
             machine, self.data.get("session_status", "unknown"), values
         )
+        maintenance = {}
+        if machine == "treadmill" and self._maintenance_loaded:
+            if values.get("session_status") in ("paused", "stopped", "safety_stop", "reset"):
+                self.maintenance.interrupt()
+            elif "speed_kmh" in values:
+                self.maintenance.sample(values["speed_kmh"], asyncio.get_running_loop().time(), dt_util.now().date())
+            maintenance = self._maintenance_snapshot()
+            self._schedule_maintenance_save()
         self.async_set_updated_data({
-            **self.data, **values, "connected": self.transport.connected,
+            **self.data, **values, **maintenance, "connected": self.transport.connected,
             "armed": self.transport.armed, "machine_type": machine,
             "session_status": status,
         })
 
     def _disconnected(self) -> None:
+        self.maintenance.interrupt()
+        if self._maintenance_loaded and self.data.get('machine_type') == 'treadmill':
+            self._schedule_maintenance_save()
         self.targets.clear()  # no stale commands after reconnect
         self.workouts.close("bluetooth_disconnected")
         self.async_set_updated_data({
@@ -60,6 +94,9 @@ class HFCState(DataUpdateCoordinator[dict[str, Any]]):
 
     async def _async_update_data(self) -> dict:
         self.workouts.tick()
+        if self._maintenance_loaded and self.data.get('machine_type') == 'treadmill':
+            self.data = {**self.data, **self._maintenance_snapshot()}
+            self._schedule_maintenance_save()
         try:
             await self.transport.connect()
         except Exception as err:
@@ -117,3 +154,5 @@ class HFCState(DataUpdateCoordinator[dict[str, Any]]):
     async def shutdown(self) -> None:
         await self.transport.disconnect()
         await self.workouts.shutdown()
+        if self._maintenance_loaded and self.data.get('machine_type') == 'treadmill':
+            await self._maintenance_store.async_save(self.maintenance.data)
