@@ -468,11 +468,23 @@
       const busy=this._workoutBusy===this.chosen;
       if(err)node.textContent="Fel vid passhämtning: "+err;
       else if(!s)node.textContent="Hämtar passinformation…";
+      else if(s.paused)node.textContent="⏸ Pausat · återupptas när bandet rör sig";
       else if(s.active)node.textContent="● Spelar in · "+s.elapsed_s+
         " s · "+(s.current_met!=null?Number(s.current_met).toFixed(1)+" MET · ":"")+Number(s.distance_km||0).toLocaleString("sv-SE",{maximumFractionDigits:3})+
         " km · cirka "+Math.ceil((s.raw_bytes||0)/1024)+" kB rådata";
       else if(s.saving)node.textContent="Sparar pass och läser tillbaka rådata…";
       else node.textContent="Redo. Inspelning startar automatiskt när löpbandet rör sig.";
+      let dialog=this.shadowRoot.querySelector('[data-pause-dialog]');
+      if(s?.pause_pending&&!dialog){
+        dialog=document.createElement("dialog");
+        dialog.dataset.pauseDialog="";
+        dialog.innerHTML='<h3>Träningspass pausat</h3><p>Löpbandet har stått stilla i 15 sekunder. Vill du fortsätta senare?</p><div class="actions"><button data-keep>Behåll pausat</button><button data-finish>Avsluta och spara</button></div>';
+        node.parentNode.append(dialog);
+        dialog.addEventListener("cancel",e=>e.preventDefault());
+        dialog.querySelector("[data-keep]").onclick=()=>this.updateWorkout("keep_paused",{});
+        dialog.querySelector("[data-finish]").onclick=()=>this.updateWorkout("save",{});
+        dialog.showModal();
+      }else if(!s?.pause_pending&&dialog){dialog.close();dialog.remove();}
       const btn=this.shadowRoot.querySelector('[data-workout-save]');
       if(btn)btn.disabled=busy||!s?.active;
       const profile=this.shadowRoot.querySelector('[data-fit-profile]');
