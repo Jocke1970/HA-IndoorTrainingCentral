@@ -36,11 +36,19 @@ async def ws_workouts(
         connection.send_error(msg["id"], websocket_api.ERR_NOT_FOUND,
                               "No workout journal for this equipment")
         return
-    if msg["action"] not in ("status", "save", "hr_source", "fit_download", "rename"):
+    if msg["action"] not in ("status", "save", "hr_source", "fit_download", "rename", "fit_settings"):
         connection.send_error(msg["id"], websocket_api.ERR_INVALID_FORMAT,
                               "Unknown workout command")
         return
     journal = state.workouts
+    if msg["action"] == "fit_settings":
+        try:
+            await journal.set_fit_profile(msg.get("profile", ""))
+        except (OSError, ValueError, TypeError) as err:
+            connection.send_error(msg["id"], "fit_error", str(err)[:160])
+            return
+        connection.send_result(msg["id"], journal.status())
+        return
     if msg["action"] == "rename":
         session = next((x for x in journal.history if x.get("id") == msg.get("session_id")), None)
         if not session:
@@ -56,7 +64,7 @@ async def ws_workouts(
         return
     if msg["action"] == "fit_download":
         session = next((x for x in journal.history if x.get("id") == msg.get("session_id")), None)
-        profile = msg.get("profile", "native")
+        profile = msg.get("profile", journal.fit_profile)
         if not session or not session.get("complete") or profile not in PROFILES:
             connection.send_error(msg["id"], websocket_api.ERR_INVALID_FORMAT, "Invalid session or profile")
             return
