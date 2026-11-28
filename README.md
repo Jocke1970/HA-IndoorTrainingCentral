@@ -8,7 +8,7 @@ A shared Home Assistant training center for treadmill, Tacx FLUX S cycling, Top 
 
 | Machine | Transport | Current status |
 | --- | --- | --- |
-| HomeFitnessCode Q5 Pro / Y5 | FTMS / HomeFitnessCode FTMS profile | App APK contains FTMS, hardware not yet tested |
+| HomeFitnessCode Q5 Pro / Y5 | FTMS / HomeFitnessCode FTMS profile | Q5 treadmill telemetry and manual controls tested by owner; new FIT and display features await practical validation |
 | Tacx FLUX S Smart T2900S | Standard FTMS or Tacx FE-C over Bluetooth | FE-C via pycycling, power/cadence/speed and ERG/simulated hill implemented but not hardware-verified |
 | Top Sport / Christopeit WP5000 | FTMS first; read-only GATT discovery fallback | Owner confirmed direct Bluetooth pairing to MyWhoosh on phone without bridge; GATT/FTMS UUID not yet captured |
 
@@ -29,7 +29,7 @@ This beta is distributed as a GitHub **pre-release**, not from the development b
 1. In Home Assistant go to **Settings → Marketplace → Add from link**.
 2. Add `https://github.com/Jocke1970/HA-IndoorTrainingCentral` as an **Integration**.
 3. Open HA-IndoorTrainingCentral in Marketplace and enable **Pre-release**.
-4. Install the newest `2026.11.0bN` pre-release (currently `2026.11.0b11`), not the `main` branch.
+4. Install the newest `2026.11.0bN` pre-release (currently `2026.11.0b16`), not the `main` branch.
 5. Open **Settings → Devices & services** and configure HA-IndoorTrainingCentral.
 6. For new dashboards, register `/indoor-training-central/indoor-training-central-card.js` as a JavaScript module and add:
 
@@ -178,3 +178,7 @@ Se [docs/workout-journal.md](docs/workout-journal.md) för testförfarande och f
 - [ ] During trainer hardware testing, capture actual power, requested ERG power, cadence, reported speed and, if available, gear ratio. Test different gears and cadences to estimate the lower power envelope; do not assume reported speed is physical flywheel speed without verification.
 - [ ] Explore optional user-configured gearing or an empirical speed/power model. Distinguish unavoidable drivetrain/trainer resistance from commanded resistance and account for measurement uncertainty.
 - [ ] Consider an estimated minimum achievable power indicator and a warning when the requested ERG target is below the estimated floor. Keep advisory/read-only initially; do not silently change targets or automatically shift gears.
+
+## Workout archive and training display (b16)
+
+The treadmill journal now exports Garmin FIT activities using the official Garmin FIT SDK, including timer events, recorded heart rate/RR intervals and estimated MET developer fields. Choose the native or fēnix 7 Pro identity in Settings; Garmin Connect training metrics are not guaranteed. Training, History and Settings are separate views. The optional training display requests fullscreen and screen wake lock where supported. Confirmed inactivity triggers a pause decision; physical motion resumes the same pass. The default threshold is 15 seconds, configurable per treadmill. Raw JSONL is retained by default; opting out affects future completed workouts only, after verified FIT and summary storage. Keep JSONL during initial real-world testing. Cycling and rowing activity detection is covered by unit tests, but their complete workout journals are not implemented yet.

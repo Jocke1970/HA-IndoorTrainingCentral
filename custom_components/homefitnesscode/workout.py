@@ -10,10 +10,14 @@ import asyncio
 from collections import deque
 from datetime import datetime, timezone
 import json
+import math
 from pathlib import Path
 import re
 import time
 from uuid import uuid4
+
+from .activity import ActivityMonitor
+from .fit_export import export_fit, EXPORT_VERSION, validate_fit, PROFILES
 
 IDLE_FINISH_SECONDS = 15
 MAX_SESSION_SECONDS = 6 * 3600
@@ -25,6 +29,54 @@ SCHEMA = 1
 
 METRICS = ("speed_kmh", "distance_km", "elapsed_s", "incline_percent",
            "energy_kcal", "heart_rate_bpm", "power_w")
+
+
+class MetAccumulator:
+    """Estimated gross MET from treadmill speed and grade; never bridge stale data."""
+    def __init__(self):
+        self.previous = None
+        self.current = None
+        self.peak = None
+        self.seconds = 0.0
+        self.integral = 0.0
+
+    def add(self, timestamp, values):
+        speed = values.get("speed_kmh")
+        grade = values.get("incline_percent")
+        if not all(isinstance(v, (int, float)) and not isinstance(v, bool)
+                   and math.isfinite(v) for v in (speed, grade)):
+            self.previous = None
+            self.current = None
+            return
+        if not 0 <= speed <= 30 or not 0 <= grade <= 30:
+            self.previous = None
+            self.current = None
+            return
+        if self.previous is not None:
+            old_time, old_met = self.previous
+            dt = timestamp - old_time
+            if 0 < dt <= 5 and old_met is not None:
+                self.seconds += dt
+                self.integral += old_met * dt
+        if speed <= 0.2:
+            met = None
+        else:
+            metres_min = speed * 1000 / 60
+            horizontal, vertical = (0.1, 1.8) if speed < 8 else (0.2, 0.9)
+            met = (3.5 + metres_min * (horizontal + vertical * grade / 100)) / 3.5
+            self.peak = met if self.peak is None else max(self.peak, met)
+        self.current = met
+        self.previous = (timestamp, met)
+
+    def metrics(self):
+        return {
+            "current_met": round(self.current, 2) if self.current is not None else None,
+            "average_met": round(self.integral / self.seconds, 2) if self.seconds else None,
+            "max_met": round(self.peak, 2) if self.peak is not None else None,
+            "met_minutes": round(self.integral / 60, 2),
+            "met_coverage_s": round(self.seconds, 2),
+            "met_method": "acsm_estimate_speed_switch_8_kmh",
+        }
 
 
 def utc_now() -> str:
@@ -46,6 +98,7 @@ def _append_rows(path: Path, rows: list[dict]) -> None:
 
 def replay_session(path: Path) -> dict | None:
     """Derive a finished/incomplete workout from persisted wire frames."""
+    met = MetAccumulator()
     started = None
     finished = None
     samples = 0
@@ -55,6 +108,31 @@ def replay_session(path: Path) -> dict | None:
     last_positive_time = None
     last_movement = None
     bytes_read = 0
+    pauses = []
+    pause_start = None
+    with path.open(encoding="utf-8") as file:
+        for line in file:
+            try:
+                row = json.loads(line)
+                if row.get("type") == "session_pause" and pause_start is None:
+                    pause_start = datetime.fromisoformat(row["timestamp"])
+                elif row.get("type") == "session_resume" and pause_start is not None:
+                    resume = datetime.fromisoformat(row["timestamp"])
+                    if resume >= pause_start:
+                        pauses.append((pause_start, resume))
+                    pause_start = None
+            except (ValueError, KeyError, TypeError):
+                continue
+
+    def excluded(row):
+        try:
+            ts = datetime.fromisoformat(row["timestamp"])
+            return (any(a <= ts < b for a,b in pauses)
+                    or (pause_start is not None and ts >= pause_start)
+                    or (started and started.get("timestamp") and ts < datetime.fromisoformat(started["timestamp"])))
+        except (ValueError, KeyError, TypeError):
+            return False
+
     with path.open(encoding="utf-8") as file:
         for line in file:
             bytes_read += len(line.encode("utf-8"))
@@ -67,6 +145,8 @@ def replay_session(path: Path) -> dict | None:
             elif row.get("type") == "session_end":
                 finished = row
             elif row.get("type") == "heart_rate":
+                if excluded(row):
+                    continue
                 bpm = row.get("bpm")
                 if isinstance(bpm, (int, float)) and 0 < bpm <= 255:
                     external_hr.append(bpm)
@@ -76,6 +156,17 @@ def replay_session(path: Path) -> dict | None:
                     continue
                 if row.get("characteristic", "").lower().endswith("2acd-0000-1000-8000-00805f9b34fb"):
                     samples += 1
+                    if excluded(row):
+                        met.previous = None
+                        met.current = None
+                        continue
+                    if started and row.get("direction") == "rx":
+                        try:
+                            ts = datetime.fromisoformat(row["timestamp"])
+                            if ts >= datetime.fromisoformat(started["timestamp"]):
+                                met.add(ts.timestamp(), decoded)
+                        except (KeyError, ValueError, TypeError):
+                            pass
                     bpm = decoded.get("heart_rate_bpm")
                     if isinstance(bpm, (int, float)) and 0 < bpm <= 255:
                         machine_hr.append(bpm)
@@ -95,6 +186,16 @@ def replay_session(path: Path) -> dict | None:
                               datetime.fromisoformat(started["timestamp"])).total_seconds())
         except (ValueError, TypeError):
             pass
+    wall_elapsed = elapsed
+    if pauses or pause_start is not None:
+        try:
+            start_dt = datetime.fromisoformat(started["timestamp"])
+            end_dt = pause_start or datetime.fromisoformat((finished or {}).get("timestamp") or last_movement)
+            # FIT timestamps use whole seconds; keep summaries aligned.
+            wall_elapsed = int(end_dt.timestamp()) - int(start_dt.timestamp())
+            elapsed = max(0, wall_elapsed - sum(int(b.timestamp())-int(a.timestamp()) for a,b in pauses))
+        except (ValueError, KeyError, TypeError):
+            pass
     hr = external_hr if external_hr else machine_hr if not started.get("hr_source_id") else []
     return {
         "id": path.stem,
@@ -108,6 +209,8 @@ def replay_session(path: Path) -> dict | None:
         "average_speed_kmh": round(maxima.get("distance_km", 0) * 3600 / elapsed, 2)
         if elapsed > 0 else 0,
         "elapsed_s": round(elapsed),
+        "total_elapsed_s": round(wall_elapsed),
+        "paused_s": max(0, round(wall_elapsed - elapsed)),
         "energy_kcal": round(maxima.get("energy_kcal", 0), 1),
         "max_speed_kmh": round(maxima.get("speed_kmh", 0), 2),
         "max_incline_percent": round(maxima.get("incline_percent", 0), 2),
@@ -115,37 +218,90 @@ def replay_session(path: Path) -> dict | None:
         "average_heart_rate_bpm": round(sum(hr) / len(hr), 1) if hr else None,
         "heart_rate_samples": len(hr),
         "heart_rate_source": started.get("hr_source_name") or "training_machine",
+        **met.metrics(),
         "raw_frames": samples,
         "raw_bytes": bytes_read,
         "file": path.name,
     }
 
 
-def _write_summary(raw: Path) -> dict | None:
+def write_metadata(target: Path, data: dict) -> None:
+    temporary = target.with_name(target.name + "." + uuid4().hex + ".tmp")
+    try:
+        temporary.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        temporary.replace(target)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def _write_summary(raw: Path, profile: str = "native", retain_raw: bool = True) -> dict | None:
     summary = replay_session(raw)
     if summary is None:
         return None
     target = raw.with_suffix(".summary.json")
-    temporary = target.with_suffix(".summary.json.tmp")
-    temporary.write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    temporary.replace(target)
+    if target.is_file():
+        try:
+            old = json.loads(target.read_text(encoding="utf-8"))
+            if isinstance(old.get("session_name"), str):
+                summary["session_name"] = old["session_name"]
+        except (OSError, ValueError):
+            pass
+    summary.setdefault("session_name", "Löpband")
+    if summary.get("complete") and summary.get("elapsed_s", 0) > 0:
+        try:
+            summary["fit_file"] = export_fit(raw, summary, profile=profile).name
+            summary["fit_export_version"] = EXPORT_VERSION
+            summary["fit_profile"] = profile
+            summary["fit_available"] = True
+            summary["raw_available"] = True
+        except (OSError, ValueError, TypeError, OverflowError) as err:
+            summary["fit_error"] = str(err)[:160]
+    write_metadata(target, summary)
+    # Never prune older journals during recovery, or incomplete/failed exports.
+    if not retain_raw and summary.get("complete") and summary.get("fit_available") and not summary.get("fit_error"):
+        try:
+            from garmin_fit_sdk import Decoder, Stream
+            archived = raw.with_suffix(".fit")
+            data = archived.read_bytes()
+            if not validate_fit(data):
+                raise ValueError("Archived FIT integrity failure")
+            messages, errors = Decoder(Stream.from_byte_array(bytearray(data))).read()
+            if errors or not all(messages.get(k) for k in ("file_id_mesgs","record_mesgs","lap_mesgs","session_mesgs","activity_mesgs")):
+                raise ValueError("Archived FIT decoding failure")
+            saved = json.loads(target.read_text(encoding="utf-8"))
+            if saved != summary:
+                raise ValueError("Summary verification failure")
+            raw.unlink()
+            summary["raw_available"] = False
+            write_metadata(target, summary)
+        except (OSError, ValueError, TypeError) as err:
+            summary["raw_available"] = raw.is_file()
+            summary["retention_error"] = str(err)[:160]
     return summary
 
 
-def _recover(directory: Path) -> list[dict]:
+def _recover(directory: Path, profile: str = "native") -> list[dict]:
     directory.mkdir(parents=True, exist_ok=True)
-    raw_files = sorted(directory.glob("*.jsonl"), reverse=True)
+    ids = {p.stem for p in directory.glob("*.jsonl")}
+    ids.update(p.name.removesuffix(".summary.json") for p in directory.glob("*.summary.json"))
     result = []
-    for path in raw_files[:KEEP_HISTORY]:
-        summary_path = path.with_suffix(".summary.json")
+    for session_id in sorted(ids, reverse=True):
+        path = directory / (session_id + ".jsonl")
+        summary_path = directory / (session_id + ".summary.json")
         try:
-            if summary_path.is_file():
-                summary = json.loads(summary_path.read_text(encoding="utf-8"))
-            else:
-                summary = _write_summary(path)
+            summary = json.loads(summary_path.read_text(encoding="utf-8")) if summary_path.is_file() else None
+            if path.is_file() and (not summary or "met_method" not in summary
+                    or (summary.get("complete") and (summary.get("fit_export_version") != EXPORT_VERSION
+                        or not path.with_suffix(".fit").is_file()))):
+                summary = _write_summary(path, summary.get("fit_profile", profile) if summary else profile)
             if summary:
+                summary["raw_available"] = path.is_file()
+                fit = path.with_suffix(".fit")
+                summary["fit_available"] = fit.is_file() and validate_fit(fit.read_bytes())
                 result.append(summary)
-        except (OSError, ValueError):
+            if len(result) >= KEEP_HISTORY:
+                break
+        except (OSError, ValueError, TypeError):
             continue
     return result[:KEEP_HISTORY]
 
@@ -157,13 +313,20 @@ class WorkoutJournal:
         self.directory = Path(base) / safe_segment(entry_id)
         self.device_name = device_name
         self.history: list[dict] = []
+        self.fit_profile = "native"
+        self.retain_raw = True
+        self._settings_lock = asyncio.Lock()
         self.active = False
+        self.paused = False
+        self.pause_pending = False
+        self.activity_monitor = ActivityMonitor()
         self.finalizing = False
         self.error: str | None = None
         self.path: Path | None = None
         self.started_at: str | None = None
         self.hr_source_id = None
         self.hr_source_name = None
+        self._met = MetAccumulator()
         self._start_mono = 0.0
         self._last_moving = 0.0
         self._last_elapsed = 0.0
@@ -177,8 +340,40 @@ class WorkoutJournal:
         self._saves: set[asyncio.Task] = set()
 
     async def async_prepare(self) -> None:
-        self.history = await asyncio.to_thread(_recover, self.directory)
+        self.fit_profile, idle, self.retain_raw = await asyncio.to_thread(self._load_settings)
+        self.activity_monitor.idle_seconds = idle
+        self.history = await asyncio.to_thread(_recover, self.directory, self.fit_profile)
         self._worker = asyncio.create_task(self._write_loop())
+
+    def _load_settings(self):
+        try:
+            settings = json.loads((self.directory / "settings.json").read_text(encoding="utf-8"))
+            profile = settings.get("fit_profile")
+            idle = settings.get("idle_seconds", 15)
+            return (profile if profile in PROFILES else "native",
+                    idle if type(idle) is int and 5 <= idle <= 300 else 15,
+                    settings.get("retain_raw") is not False)
+        except (OSError, ValueError, TypeError, AttributeError):
+            return "native", 15, True
+
+    async def set_fit_profile(self, profile=None, idle_seconds=None, retain_raw=None):
+        async with self._settings_lock:
+            profile = self.fit_profile if profile is None else profile
+            idle = self.activity_monitor.idle_seconds if idle_seconds is None else idle_seconds
+            if profile not in PROFILES or type(idle) is not int or not 5 <= idle <= 300:
+                raise ValueError("Invalid workout settings")
+            retain = self.retain_raw if retain_raw is None else retain_raw
+            if type(retain) is not bool:
+                raise ValueError("Invalid raw retention setting")
+            if (self.active or self.finalizing) and retain != self.retain_raw:
+                raise ValueError("Cannot change retention during workout")
+            if self.active and idle != self.activity_monitor.idle_seconds:
+                raise ValueError("Cannot change inactivity threshold during workout")
+            await asyncio.to_thread(write_metadata, self.directory / "settings.json",
+                                    {"fit_profile": profile, "retain_raw": retain, "idle_seconds": idle})
+            self.fit_profile = profile
+            self.retain_raw = retain
+            self.activity_monitor.idle_seconds = idle
 
     def _enqueue(self, path: Path, item: dict) -> bool:
         if self._queue.full():
@@ -227,9 +422,12 @@ class WorkoutJournal:
         filename = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + uuid4().hex[:8] + ".jsonl"
         self.path = self.directory / filename
         self.active = True
+        self.paused = False
+        self.pause_pending = False
         self.finalizing = False
         self.error = None
         self.started_at = timestamp
+        self._met = MetAccumulator()
         self._start_mono = now
         self._last_moving = now
         self._last_elapsed = 0.0
@@ -263,21 +461,29 @@ class WorkoutJournal:
         is_treadmill = (direction == "rx" and
                         characteristic.lower().endswith("2acd-0000-1000-8000-00805f9b34fb"))
         speed = float(values.get("speed_kmh") or 0) if is_treadmill else 0
+        moving = self.activity_monitor.observe(now, timestamp, values) if is_treadmill else None
         if not self.active:
             self._preroll.append(frame)
-            if is_treadmill and speed <= 0.2:
+            if moving is False:
                 self._await_stationary = False
             # Only physical movement starts a pass. Manual stop must not
             # instantly create another session while belt is still moving.
-            if is_treadmill and speed > 0.2 and not self._await_stationary:
+            if moving is True and not self._await_stationary:
                 self._start(now, timestamp)
+                self._met.add(now, values)
             return
         if self.path is None:
             return
+        if moving is True and self.paused:
+            if not self._enqueue(self.path, {"type": "session_resume", "timestamp": timestamp}):
+                self.close("write_queue_full")
+                return
+            self.paused = self.pause_pending = False
         if not self._enqueue(self.path, frame):
             self.close("write_queue_full")
             return
         if is_treadmill:
+            self._met.add(now, values)
             for key in METRICS:
                 v = values.get(key)
                 if isinstance(v, (int, float)) and not isinstance(v, bool):
@@ -286,7 +492,7 @@ class WorkoutJournal:
             distance = float(values.get("distance_km") or 0)
             # Elapsed time can continue increasing when a belt is stationary:
             # do not confuse that with actual treadmill movement.
-            if speed > 0.2 or distance > self._last_dist:
+            if moving is True:
                 self._last_moving = now
             self._last_elapsed = max(elapsed, self._last_elapsed)
             self._last_dist = max(distance, self._last_dist)
@@ -294,12 +500,12 @@ class WorkoutJournal:
                 self.close("duration_limit")
             elif self._bytes_queued >= MAX_SESSION_BYTES:
                 self.close("size_limit")
-            elif speed <= 0.2 and now - self._last_moving >= IDLE_FINISH_SECONDS:
-                self.close("stopped")
+            elif self.activity_monitor.inactive(now):
+                self._offer_pause()
 
     def record_heart_rate(self, source_id, bpm, rr_ms=None):
         """Store only live notifications from the selected source during motion."""
-        if (not self.active or self.path is None or source_id != self.hr_source_id
+        if (not self.active or self.paused or self.path is None or source_id != self.hr_source_id
                 or time.monotonic() - self._last_moving > 5
                 or not isinstance(bpm, (int, float)) or not 0 < bpm <= 255):
             return
@@ -309,14 +515,31 @@ class WorkoutJournal:
         elif self._bytes_queued >= MAX_SESSION_BYTES:
             self.close("size_limit")
 
+    def _offer_pause(self):
+        if not self.active or self.paused or self.path is None:
+            return
+        if self.activity_monitor.idle_timestamp is None:
+            # Missing telemetry is not confirmed stationary motion.
+            return
+        if self._enqueue(self.path, {"type": "session_pause", "timestamp": self.activity_monitor.idle_timestamp}):
+            self.paused = self.pause_pending = True
+
+    def keep_paused(self):
+        self.pause_pending = False
+
     def tick(self) -> None:
-        if self.active and time.monotonic() - self._last_moving >= IDLE_FINISH_SECONDS:
-            self.close("stopped")
+        if self.active:
+            now = time.monotonic()
+            if now - self._start_mono >= MAX_SESSION_SECONDS:
+                self.close("duration_limit")
+            elif self.activity_monitor.inactive(now):
+                self._offer_pause()
 
     def close(self, reason: str = "manual") -> None:
         if not self.active:
             return
         self.active = False
+        self.paused = self.pause_pending = False
         self.finalizing = True
         self._await_stationary = reason in ("manual", "size_limit", "duration_limit")
         if self.path is None:
@@ -330,7 +553,7 @@ class WorkoutJournal:
     async def _finalize(self, path: Path) -> None:
         try:
             await self._queue.join()
-            summary = await asyncio.to_thread(_write_summary, path)
+            summary = await asyncio.to_thread(_write_summary, path, self.fit_profile, self.retain_raw)
             if summary:
                 self.history = [summary] + [item for item in self.history
                                             if item.get("id") != summary["id"]]
@@ -343,6 +566,9 @@ class WorkoutJournal:
     def status(self) -> dict:
         return {
             "active": self.active,
+            "paused": self.paused,
+            "pause_pending": self.pause_pending,
+            "idle_seconds": self.activity_monitor.idle_seconds,
             "hr_source_id": self.hr_source_id,
             "hr_source_name": self.hr_source_name,
             "saving": self.finalizing,
@@ -352,6 +578,9 @@ class WorkoutJournal:
             "elapsed_s": round(self._maxima.get("elapsed_s", 0)) if self.active else 0,
             "raw_bytes": self._bytes_queued if self.active else 0,
             "raw_path": str(self.path) if self.active and self.path else None,
+            **(self._met.metrics() if self.active else MetAccumulator().metrics()),
+            "fit_profile": self.fit_profile,
+            "retain_raw": self.retain_raw,
             "recent": self.history[:8],
             "storage_directory": str(self.directory),
         }

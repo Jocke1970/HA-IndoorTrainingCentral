@@ -2,6 +2,8 @@
 import asyncio
 from datetime import datetime, timezone
 import importlib.util
+import sys
+import types
 import json
 from pathlib import Path
 from unittest.mock import patch
@@ -9,7 +11,9 @@ from unittest.mock import patch
 import pytest
 
 path = Path(__file__).parents[1] / "custom_components/homefitnesscode/workout.py"
-spec = importlib.util.spec_from_file_location("workout", path)
+package = sys.modules.setdefault("itc_test_package", types.ModuleType("itc_test_package"))
+package.__path__ = [str(Path(__file__).parents[1] / "custom_components/homefitnesscode")]
+spec = importlib.util.spec_from_file_location("itc_test_package.workout", path)
 m = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(m)
 
@@ -130,10 +134,98 @@ async def test_manual_save_while_belt_moving_does_not_create_new_session(tmp_pat
 async def test_stationary_elapsed_increasing_does_not_keep_workout_alive(tmp_path):
     j = m.WorkoutJournal(tmp_path, "id", "Q5")
     await j.async_prepare()
-    with patch.object(m.time, "monotonic", side_effect=[100, 101, 117]):
+    with patch.object(m.time, "monotonic", side_effect=[100, 101, 108, 115, 116]):
         send(j, speed=1, sec=2)
         send(j, speed=0, sec=10)
+        send(j, speed=0, sec=17)
+        send(j, speed=0, sec=24)
         j.tick()
-    assert j.active is False
+    assert j.active and j.paused and j.pause_pending
+    j.keep_paused()
+    assert j.paused and not j.pause_pending
+    send(j, speed=2, sec=20)
+    assert j.active and not j.paused
+    j.close("manual")
     await j.shutdown()
-    assert j.history[0]["reason"] == "stopped"
+    assert j.history[0]["reason"] == "manual"
+
+
+def test_replay_multiple_pauses(tmp_path):
+    raw = tmp_path / "pass.jsonl"
+    def row(kind, second, **extra):
+        return dict(type=kind, timestamp=f"2026-11-28T20:00:{second:02d}+00:00", **extra)
+    def frame(second, speed=3.6):
+        return row("frame", second, direction="rx", characteristic=FTMS,
+                   decoded={"speed_kmh":speed,"incline_percent":0,"elapsed_s":second})
+    m._append_rows(raw, [row("session_start",0),frame(0),frame(4),
+        frame(5,0),row("heart_rate",6,bpm=200),row("session_pause",5),
+        row("session_resume",20),frame(20),frame(24),
+        row("session_pause",25),row("session_resume",40),frame(40),frame(44),
+        row("session_pause",45),row("session_end",59,reason="manual")])
+    summary=m.replay_session(raw)
+    assert summary["elapsed_s"] == 15
+    assert summary["total_elapsed_s"] == 45
+    assert summary["paused_s"] == 30
+    assert summary["heart_rate_samples"] == 0
+    assert summary["average_met"] == pytest.approx(2.71, abs=.01)
+    assert summary["met_coverage_s"] == 12
+
+
+def archived_session(tmp_path, reason="manual"):
+    raw = tmp_path / "archive.jsonl"
+    start = "2026-11-28T20:00:00+00:00"
+    m._append_rows(raw, [
+        {"type":"session_start","timestamp":start,"device_name":"Q5"},
+        {"type":"frame","timestamp":start,"direction":"rx","characteristic":FTMS,
+         "decoded":{"speed_kmh":3.6,"distance_km":0,"elapsed_s":0,"incline_percent":0}},
+        {"type":"frame","timestamp":"2026-11-28T20:00:05+00:00","direction":"rx","characteristic":FTMS,
+         "decoded":{"speed_kmh":3.6,"distance_km":.005,"elapsed_s":5,"incline_percent":0}},
+        {"type":"session_end","timestamp":"2026-11-28T20:00:05+00:00","reason":reason}])
+    return raw
+
+
+@pytest.mark.parametrize("retain",[True,False])
+def test_archive_retention_and_history(tmp_path,retain):
+    raw=archived_session(tmp_path)
+    summary=m._write_summary(raw,retain_raw=retain)
+    assert summary["fit_available"],summary
+    assert raw.exists() is retain
+    assert summary["raw_available"] is retain
+    assert m.validate_fit(raw.with_suffix(".fit").read_bytes())
+    history=m._recover(tmp_path)
+    assert len(history)==1
+    assert history[0]["raw_available"] is retain
+    assert history[0]["fit_available"]
+
+
+def test_failed_export_never_prunes_raw(tmp_path):
+    raw=archived_session(tmp_path)
+    with patch.object(m,"export_fit",side_effect=ValueError("test export failure")):
+        summary=m._write_summary(raw,retain_raw=False)
+    assert raw.exists()
+    assert summary.get("fit_error")
+    assert not summary.get("fit_available")
+
+
+def test_incomplete_session_never_prunes_raw(tmp_path):
+    raw=archived_session(tmp_path,"integration_unload")
+    summary=m._write_summary(raw,retain_raw=False)
+    assert raw.exists()
+    assert not summary["complete"]
+
+
+@pytest.mark.asyncio
+async def test_retention_settings_survive_restart(tmp_path):
+    j=m.WorkoutJournal(tmp_path,"id","Q5")
+    await j.async_prepare()
+    assert j.retain_raw is True
+    await j.set_fit_profile(retain_raw=False,idle_seconds=25)
+    await j.shutdown()
+    again=m.WorkoutJournal(tmp_path,"id","Q5")
+    await again.async_prepare()
+    assert again.retain_raw is False
+    assert again.activity_monitor.idle_seconds==25
+    send(again,speed=1)
+    with pytest.raises(ValueError):
+        await again.set_fit_profile(retain_raw=True)
+    await again.shutdown()

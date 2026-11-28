@@ -32,12 +32,21 @@
       }
     }
     connectedCallback(){
+      this._displayVisibilityHandler??=()=>{if(document.visibilityState==="visible"&&this.displayMode)void this.acquireWakeLock();};
+      this._fullscreenHandler??=()=>{if(this._enteredFullscreen&&!document.fullscreenElement){this._enteredFullscreen=false;this.displayMode=false;void this.releaseWakeLock();this.paintViews();}};
+      document.addEventListener("visibilitychange",this._displayVisibilityHandler);
+      document.addEventListener("fullscreenchange",this._fullscreenHandler);
       if(!this._captureTimer)this._captureTimer=setInterval(()=>{
         void this.refreshCapture();
         void this.refreshWorkout();
       },5000);
     }
     disconnectedCallback(){
+      document.removeEventListener("visibilitychange",this._displayVisibilityHandler);
+      document.removeEventListener("fullscreenchange",this._fullscreenHandler);
+      this.displayMode=false;
+      void this.releaseWakeLock();
+      if(document.fullscreenElement===this)void document.exitFullscreen?.().catch(()=>{});
       if(this._captureTimer)clearInterval(this._captureTimer);
       this._captureTimer=null;
     }
@@ -210,7 +219,7 @@
       "button{font:inherit;font-size:13px;cursor:pointer;color:var(--primary-text-color);background:var(--secondary-background-color);border:1px solid var(--divider-color);border-radius:9px;padding:10px}",
       "button:disabled,input:disabled{opacity:.4;cursor:not-allowed}",
       ".danger{color:var(--error-color);border-color:var(--error-color)}",
-      ".controls{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:12px;margin-top:15px}",
+      ".view-nav{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin:12px 0}.view-nav button{min-height:44px;padding:8px 4px}.view-nav button[aria-pressed=true]{border-color:var(--primary-color);color:var(--primary-color);font-weight:700}[data-view-panel][hidden]{display:none!important}:host(:fullscreen){overflow:auto;background:var(--primary-background-color);color:var(--primary-text-color)}.display-mode .device-nav,.display-mode .kicker{display:none}.display-mode{min-height:0}.display-mode .tile{padding:10px}.display-mode .val{font-size:clamp(24px,6vw,42px)}.display-mode .stats{grid-template-columns:repeat(2,minmax(0,1fr))}.controls{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:12px;margin-top:15px}",
       ".target{display:grid;gap:6px;font-size:12px}",
       ".targetrow input{flex:1 1 100px;width:80px;min-width:0}",
       ".ftms-test{display:grid;gap:12px;margin-top:12px}",
@@ -235,6 +244,7 @@
       ".fan-line select{max-width:210px;flex:1 1 150px}",
       ".fan-note{font-size:12px;color:var(--secondary-text-color);margin:4px 0}",
       "@container (max-width:540px){.root{padding:12px}.head{display:grid;gap:10px}.device-nav{grid-template-columns:repeat(2,minmax(0,1fr))}.device-tab{padding:10px;gap:6px}.device-tab.is-selected{padding:9px}.device-tab-icon{font-size:18px;flex-basis:20px}.stats{grid-template-columns:repeat(2,minmax(0,1fr))}.val{font-size:22px}.controls{grid-template-columns:1fr}.actions button{flex:1}}",
+      "@media (orientation:landscape) and (min-width:600px){.display-mode .stats{grid-template-columns:repeat(3,minmax(0,1fr))}.display-mode .val{font-size:clamp(22px,4vw,36px)}}",
       "@container (max-width:400px){.ftms-step-grid{grid-template-columns:1fr}}",
       "@container (max-width:300px){.device-nav{grid-template-columns:1fr}.ftms-transport{grid-template-columns:1fr}}"
     ].join("");}
@@ -293,13 +303,14 @@
         '</section>'
       ):"";
       const workoutPanel=type==="treadmill"?
-        '<details class="panel workout" data-workout><summary>🏃 Träningspass</summary>'+
-        '<div class="workout-content"><div class="workout-note" data-workout-status>Hämtar passinformation…</div>'+
-        '<div class="actions"><button type="button" data-workout-save disabled>Avsluta och spara pass</button></div>'+
-        '<div class="workout-history" data-workout-history></div>'+
-        '<div class="workout-note" data-workout-path></div>'+
-        '<p class="workout-note">Automatisk inspelning när bandet börjar röra sig. Rå FTMS-data sparas som JSONL på HA-servern, och slutvärden beräknas från filen. Du behöver inte aktivera Protocol Capture.</p>'+
-        '</div></details>':"";
+        '<section class="panel workout" data-workout><div class="workout-content"><div class="workout-note" data-workout-status>Hämtar passinformation…</div>'+
+        '<div class="actions"><button type="button" data-workout-save disabled>Avsluta och spara pass</button></div></div></section>':"";
+      const historyPanel=type==="treadmill"?'<section class="panel"><h3>Träningshistorik</h3><div class="workout-history" data-workout-history></div></section>':'<p class="note">Träningshistorik är ännu inte tillgänglig för denna maskin.</p>';
+      const settingsPanel=type==="treadmill"?
+        '<section class="panel"><h3>Träningspass och FIT</h3><div class="workout-content">'+
+        '<label class="workout-note">FIT-exportprofil <select data-fit-profile><option value="native">HA-ITC Native</option><option value="fenix7pro">Garmin fēnix 7 Pro</option></select></label>'+
+        '<label class="workout-note">Paus efter inaktivitet (sekunder) <input data-idle-seconds type="number" min="5" max="300" step="1" value="15"></label>'+
+        '<label class="workout-note"><input type="checkbox" data-retain-raw checked> Behåll rådata (JSONL)</label><p class="workout-note">Avmarkera för framtida pass: rådata tas bort först efter verifierad FIT-export. Befintliga filer påverkas inte. Utan JSONL kan passet inte exporteras på nytt med annan profil.</p><div class="workout-note" data-workout-path></div></div></section>':"";
       const capturePanel='<details class="panel capture" data-capture><summary>🔍 Protocol Capture</summary>'+
         '<div class="capture-content"><p class="note">Manuell rådatainspelning för analys (högst 10 minuter, 3 000 paket eller 750 kB). Ingen påverkan på maskinens styrning.</p>'+
         '<div class="capture-detail" data-capture-status role="status" aria-live="polite">Hämtar status…</div>'+
@@ -319,10 +330,15 @@
         '<h2 class="machine-heading">'+(type==="treadmill"?'<span class="machine-runner" data-machine-runner aria-hidden="true">🏃</span>':"")+
         esc(d.name)+'</h2></div></header>'+
         '<nav class="device-nav" aria-label="Välj träningsmaskin">'+tabs+'</nav>'+
-        '<section><h3>♥ Pulskälla</h3><select data-hr-source aria-label="Pulskälla"></select><div data-hr-reading aria-live="polite">– bpm</div></section>'+
-        trainPanel+fanPanel+workoutPanel+capturePanel+
-        '<footer class="foot"><span data-protocol>Protokoll: –</span><span data-arm>Låst</span></footer>'+
+        '<nav class="view-nav" aria-label="Välj vy"><button data-view="training">Träning</button><button data-view="history">Historik</button><button data-view="settings">⚙ Inställningar</button></nav>'+
+        '<div data-view-panel="training"><div class="actions"><button data-display-mode>Träningsdisplay</button><span class="note" data-display-status hidden></span></div><div data-hr-reading aria-live="polite">– bpm</div>'+trainPanel+fanPanel+workoutPanel+'</div>'+
+        '<div data-view-panel="history">'+historyPanel+'</div>'+
+        '<div data-view-panel="settings"><section class="panel"><h3>♥ Pulskälla</h3><select data-hr-source aria-label="Pulskälla"></select></section>'+settingsPanel+capturePanel+
+        '<footer class="foot"><span data-protocol>Protokoll: –</span><span data-arm>Låst</span></footer></div>'+
         '</div></ha-card>';
+      this.shadowRoot.querySelectorAll('[data-view]').forEach(b=>b.addEventListener('click',()=>{this.currentView=b.dataset.view;void this.exitDisplayMode();}));
+      this.shadowRoot.querySelector('[data-display-mode]')?.addEventListener('click',()=>{void (this.displayMode?this.exitDisplayMode():this.enterDisplayMode());});
+      this.paintViews();
       this.shadowRoot.querySelectorAll('[data-device-key]').forEach(button=>button.addEventListener('click',()=>{
         const id=button.dataset.deviceKey;
         if(!groups[id]||id===this.chosen)return;
@@ -347,9 +363,53 @@
       this.shadowRoot.querySelectorAll('[data-capture-action]').forEach(b=>
         b.addEventListener('click',()=>this.captureAction(b.dataset.captureAction)));
       this.shadowRoot.querySelector('[data-workout-save]')?.addEventListener('click',()=>this.saveWorkout());
+      this.shadowRoot.querySelector('[data-fit-profile]')?.addEventListener('change',e=>this.updateWorkout("fit_settings",{profile:e.target.value}));
+      this.shadowRoot.querySelector('[data-idle-seconds]')?.addEventListener('change',e=>{
+        if(e.target.reportValidity()&&e.target.value!=="")this.updateWorkout("fit_settings",{idle_seconds:Number(e.target.value)});
+      });
+      this.shadowRoot.querySelector('[data-retain-raw]')?.addEventListener('change',e=>{if(!e.target.checked&&!window.confirm('Framtida färdiga pass behåller endast FIT och sammanfattning. Vill du fortsätta?')){e.target.checked=true;return;}this.updateWorkout('fit_settings',{retain_raw:e.target.checked});});
       this.paintCapture();
       this.paintWorkout();
       this.signature=key+':'+type+':'+this.visibleDeviceIds(groups).join(',')+':'+Object.keys(groups[key]).sort().join(',')+':'+this.fans().map(([id])=>id).join(',');
+    }
+    async acquireWakeLock(){
+      if(!this.displayMode||this._wakeLock||this._wakeLockPending||!navigator.wakeLock||document.visibilityState!=="visible")return;
+      this._wakeLockPending=true;
+      try{
+        const lock=await navigator.wakeLock.request("screen");
+        if(!this.displayMode){await lock.release();return;}
+        this._wakeLock=lock;
+        lock.addEventListener("release",()=>{if(this._wakeLock===lock)this._wakeLock=null;this.paintViews();});
+      }catch(err){this._wakeLock=null;}
+      finally{this._wakeLockPending=false;this.paintViews();}
+    }
+    async releaseWakeLock(){
+      const lock=this._wakeLock;this._wakeLock=null;
+      if(lock)try{await lock.release();}catch(err){}
+    }
+    async enterDisplayMode(){
+      this.currentView="training";this.displayMode=true;this.paintViews();
+      if(this.requestFullscreen&&!document.fullscreenElement){
+        try{await this.requestFullscreen();if(this.displayMode)this._enteredFullscreen=true;
+          else if(document.fullscreenElement===this)await document.exitFullscreen();}
+        catch(err){this._enteredFullscreen=false;}
+      }
+      if(this.displayMode)void this.acquireWakeLock();
+    }
+    async exitDisplayMode(){
+      this.displayMode=false;this._enteredFullscreen=false;this.paintViews();
+      void this.releaseWakeLock();
+      if(document.fullscreenElement===this)try{await document.exitFullscreen();}catch(err){}
+    }
+    paintViews(){
+      const view=this.currentView||"training";
+      this.shadowRoot.querySelectorAll('[data-view-panel]').forEach(p=>p.hidden=p.dataset.viewPanel!==view);
+      this.shadowRoot.querySelectorAll('[data-view]').forEach(b=>b.setAttribute("aria-pressed",String(b.dataset.view===view)));
+      this.shadowRoot.querySelector('.root')?.classList.toggle("display-mode",!!this.displayMode);
+      const button=this.shadowRoot.querySelector('[data-display-mode]');
+      if(button)button.textContent=this.displayMode?"Avsluta träningsdisplay":"Träningsdisplay";
+      const status=this.shadowRoot.querySelector("[data-display-status]");
+      if(status){status.hidden=!this.displayMode;status.textContent=this._wakeLock?"Skärmen hålls vaken":"Skärmlås styrs av enheten";}
     }
     draw(){
       if(!this.h)return;
@@ -465,13 +525,31 @@
       const busy=this._workoutBusy===this.chosen;
       if(err)node.textContent="Fel vid passhämtning: "+err;
       else if(!s)node.textContent="Hämtar passinformation…";
+      else if(s.paused)node.textContent="⏸ Pausat · återupptas när bandet rör sig";
       else if(s.active)node.textContent="● Spelar in · "+s.elapsed_s+
-        " s · "+Number(s.distance_km||0).toLocaleString("sv-SE",{maximumFractionDigits:3})+
+        " s · "+(s.current_met!=null?Number(s.current_met).toFixed(1)+" MET · ":"")+Number(s.distance_km||0).toLocaleString("sv-SE",{maximumFractionDigits:3})+
         " km · cirka "+Math.ceil((s.raw_bytes||0)/1024)+" kB rådata";
       else if(s.saving)node.textContent="Sparar pass och läser tillbaka rådata…";
       else node.textContent="Redo. Inspelning startar automatiskt när löpbandet rör sig.";
+      let dialog=this.shadowRoot.querySelector('[data-pause-dialog]');
+      if(s?.pause_pending&&!dialog){
+        dialog=document.createElement("dialog");
+        dialog.dataset.pauseDialog="";
+        dialog.innerHTML='<h3>Träningspass pausat</h3><p>Ingen aktivitet har registrerats på '+esc(s.idle_seconds||15)+' sekunder. Vill du fortsätta senare?</p><div class="actions"><button data-keep>Behåll pausat</button><button data-finish>Avsluta och spara</button></div>';
+        node.parentNode.append(dialog);
+        dialog.addEventListener("cancel",e=>e.preventDefault());
+        dialog.querySelector("[data-keep]").onclick=()=>this.updateWorkout("keep_paused",{});
+        dialog.querySelector("[data-finish]").onclick=()=>this.updateWorkout("save",{});
+        dialog.showModal();
+      }else if(!s?.pause_pending&&dialog){dialog.close();dialog.remove();}
       const btn=this.shadowRoot.querySelector('[data-workout-save]');
       if(btn)btn.disabled=busy||!s?.active;
+      const profile=this.shadowRoot.querySelector('[data-fit-profile]');
+      if(profile){profile.value=s?.fit_profile||"native";profile.disabled=busy||!s;}
+      const idle=this.shadowRoot.querySelector('[data-idle-seconds]');
+      if(idle){if(this.shadowRoot.activeElement!==idle)idle.value=s?.idle_seconds||15;idle.disabled=busy||!s||!!s.active;}
+      const retention=this.shadowRoot.querySelector('[data-retain-raw]');
+      if(retention){retention.checked=s?.retain_raw!==false;retention.disabled=busy||!s||!!s.active||!!s.saving;}
       const history=this.shadowRoot.querySelector('[data-workout-history]');
       if(history){
         const sessions=s?.recent||[];
@@ -482,15 +560,58 @@
             seconds%60].map(n=>String(n).padStart(2,"0")).join(":");
           const distance=Number(x.distance_km||0).toLocaleString("sv-SE",
             {minimumFractionDigits:2,maximumFractionDigits:3});
-          return '<div class="workout-row"><strong>'+esc(date)+
+          return '<div class="workout-row"><strong>'+esc(x.session_name||"Löpband")+' · '+esc(date)+
             (x.complete?' · Sparat':' · Återställt efter avbrott')+'</strong>'+
             esc(duration)+' · '+esc(distance)+' km · '+esc(x.energy_kcal||0)+
-            ' kcal · '+(x.heart_rate_samples?'Puls '+esc(x.average_heart_rate_bpm)+' / max '+esc(x.max_heart_rate_bpm)+' bpm · ':'')+esc(x.raw_frames||0)+' datapaket</div>';
+            ' kcal · '+(x.heart_rate_samples?'Puls '+esc(x.average_heart_rate_bpm)+' / max '+esc(x.max_heart_rate_bpm)+' bpm · ':'')+esc(x.raw_frames||0)+' datapaket'+(x.average_met!=null?' · MET '+esc(x.average_met)+' / max '+esc(x.max_met)+' · '+esc(x.met_minutes)+' MET-min':'')+(x.complete?'<div class="actions"><button type="button" data-fit-id="'+esc(x.id)+'">Hämta FIT</button><button type="button" data-rename-id="'+esc(x.id)+'">Byt namn</button></div>':'')+'</div>';
         }).join(""):'<div class="workout-note">Inga sparade pass ännu.</div>';
+        history.querySelectorAll('[data-fit-id]').forEach(b=>b.addEventListener('click',()=>this.downloadFit(b.dataset.fitId)));
+        history.querySelectorAll('[data-rename-id]').forEach(b=>b.addEventListener('click',()=>{
+          const id=b.dataset.renameId;
+          const name=prompt("Passnamn",sessions.find(x=>x.id===id)?.session_name||"Löpband");
+          if(name!==null)this.updateWorkout("rename",{session_id:id,name});
+        }));
       }
       const path=this.shadowRoot.querySelector('[data-workout-path]');
       if(path)path.textContent=s?.storage_directory?
-        'Lagring på HA: '+s.storage_directory+' (rådata .jsonl + .summary.json)':'';
+        'Lagring på HA: '+s.storage_directory+' (FIT + rådata .jsonl + .summary.json)':'';
+    }
+    async updateWorkout(action,extra){
+      const key=this.chosen;
+      if(!key||this._workoutBusy)return;
+      this._workoutBusy=key;
+      try{
+        const result=await this.h.callWS({type:"homefitnesscode/workouts",entry_id:key,action,...extra});
+        (this._workoutStates??={})[key]=result;
+        if(this._workoutErrors)delete this._workoutErrors[key];
+      }catch(err){
+        (this._workoutErrors??={})[key]=err?.message||String(err);
+      }finally{
+        this._workoutBusy=null;
+        if(this.chosen===key)this.paintWorkout();
+      }
+    }
+    async downloadFit(id){
+      const key=this.chosen;
+      if(!key||this._workoutBusy)return;
+      const state=this._workoutStates?.[key];
+      const session=state?.recent?.find(x=>x.id===id);
+      const profile=session?.raw_available===false?(session.fit_profile||"native"):(state?.fit_profile||"native");
+      this._workoutBusy=key;
+      try{
+        const result=await this.h.callWS({type:"homefitnesscode/workouts",entry_id:key,
+          action:"fit_download",session_id:id,profile});
+        const bytes=Uint8Array.from(atob(result.base64),c=>c.charCodeAt(0));
+        const url=URL.createObjectURL(new Blob([bytes],{type:"application/octet-stream"}));
+        const a=document.createElement("a");
+        a.href=url;a.download=result.filename;a.click();
+        setTimeout(()=>URL.revokeObjectURL(url),1000);
+      }catch(err){
+        (this._workoutErrors??={})[key]=err?.message||String(err);
+      }finally{
+        this._workoutBusy=null;
+        if(this.chosen===key)this.paintWorkout();
+      }
     }
     async refreshWorkout(){
       if(!this.h?.callWS||!this.chosen||this._workoutBusy||this._workoutPolling)return;

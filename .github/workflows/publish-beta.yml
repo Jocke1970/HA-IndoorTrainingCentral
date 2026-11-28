@@ -30,7 +30,7 @@ jobs:
           python-version: "3.12"
       - name: Check protocol tests
         run: |
-          python -m pip install pytest pytest-asyncio
+          python -m pip install pytest pytest-asyncio garmin-fit-sdk==21.222.0
           python -m compileall -q custom_components
           pytest -q tests
       - name: Check Marketplace packaging

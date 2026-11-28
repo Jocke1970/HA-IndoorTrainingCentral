@@ -36,3 +36,51 @@ def test_no_false_state_changes_for_other_equipment_or_bad_readings():
         assert infer("treadmill", "ready", {"speed_kmh": value}) == "ready"
     assert infer("treadmill", "ready", {"distance_km": 0.1}) == "ready"
     assert infer("treadmill", "ready", {"speed_kmh": 0.2}) == "ready"
+
+
+def test_bike_coasting_is_not_pedalling():
+    m = activity.ActivityMonitor("indoor_bike")
+    assert m.observe(0, "start", {"cadence_rpm": 65}) is True
+    for now in (1, 6, 11, 16):
+        assert m.observe(now, str(now), {"cadence_rpm": 0, "speed_kmh": 30}) is False
+    assert m.inactive(16)
+    assert m.idle_timestamp == "1"
+    assert m.observe(17, "resume", {"cadence_rpm": 30}) is True
+    assert not m.inactive(17)
+
+
+def test_rower_slow_strokes_and_pause():
+    m = activity.ActivityMonitor("rower")
+    assert m.observe(0, "0", {"stroke_count": 10}) is None
+    for now in range(1, 31):
+        count = 10 + now // 6
+        m.observe(now, str(now), {"stroke_count": count})
+        assert not m.inactive(now)
+    for now in range(31, 51):
+        m.observe(now, str(now), {"stroke_count": 15})
+    assert not m.inactive(50)
+    m.observe(51, "51", {"stroke_count": 15})
+    assert m.inactive(51)
+    assert m.observe(52, "52", {"stroke_count": 16}) is True
+    assert not m.inactive(52)
+
+
+def test_missing_or_invalid_telemetry_does_not_trigger_pause():
+    m = activity.ActivityMonitor("treadmill")
+    m.observe(0, "0", {"speed_kmh": 3})
+    m.observe(1, "1", {"speed_kmh": 0})
+    assert m.observe(10, "10", {"distance_km": 0.1}) is None
+    assert not m.inactive(20)
+    m.observe(20, "20", {"speed_kmh": 0})
+    assert not m.inactive(20)
+    assert m.idle_timestamp == "20"
+
+
+def test_custom_idle_threshold_and_rower_counter_reset():
+    m = activity.ActivityMonitor("rower", idle_seconds=5)
+    m.observe(0, "0", {"stroke_count": 100})
+    assert m.observe(1, "1", {"stroke_count": 0}) is None
+    assert m.observe(2, "2", {"stroke_count": 1}) is True
+    m.observe(3, "3", {"stroke_count": 1})
+    m.observe(8, "8", {"stroke_count": 1})
+    assert m.inactive(8)
