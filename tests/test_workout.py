@@ -169,3 +169,63 @@ def test_replay_multiple_pauses(tmp_path):
     assert summary["heart_rate_samples"] == 0
     assert summary["average_met"] == pytest.approx(2.71, abs=.01)
     assert summary["met_coverage_s"] == 12
+
+
+def archived_session(tmp_path, reason="manual"):
+    raw = tmp_path / "archive.jsonl"
+    start = "2026-11-28T20:00:00+00:00"
+    m._append_rows(raw, [
+        {"type":"session_start","timestamp":start,"device_name":"Q5"},
+        {"type":"frame","timestamp":start,"direction":"rx","characteristic":FTMS,
+         "decoded":{"speed_kmh":3.6,"distance_km":0,"elapsed_s":0,"incline_percent":0}},
+        {"type":"frame","timestamp":"2026-11-28T20:00:05+00:00","direction":"rx","characteristic":FTMS,
+         "decoded":{"speed_kmh":3.6,"distance_km":.005,"elapsed_s":5,"incline_percent":0}},
+        {"type":"session_end","timestamp":"2026-11-28T20:00:05+00:00","reason":reason}])
+    return raw
+
+
+@pytest.mark.parametrize("retain",[True,False])
+def test_archive_retention_and_history(tmp_path,retain):
+    raw=archived_session(tmp_path)
+    summary=m._write_summary(raw,retain_raw=retain)
+    assert summary["fit_available"],summary
+    assert raw.exists() is retain
+    assert summary["raw_available"] is retain
+    assert m.validate_fit(raw.with_suffix(".fit").read_bytes())
+    history=m._recover(tmp_path)
+    assert len(history)==1
+    assert history[0]["raw_available"] is retain
+    assert history[0]["fit_available"]
+
+
+def test_failed_export_never_prunes_raw(tmp_path):
+    raw=archived_session(tmp_path)
+    with patch.object(m,"export_fit",side_effect=ValueError("test export failure")):
+        summary=m._write_summary(raw,retain_raw=False)
+    assert raw.exists()
+    assert summary.get("fit_error")
+    assert not summary.get("fit_available")
+
+
+def test_incomplete_session_never_prunes_raw(tmp_path):
+    raw=archived_session(tmp_path,"integration_unload")
+    summary=m._write_summary(raw,retain_raw=False)
+    assert raw.exists()
+    assert not summary["complete"]
+
+
+@pytest.mark.asyncio
+async def test_retention_settings_survive_restart(tmp_path):
+    j=m.WorkoutJournal(tmp_path,"id","Q5")
+    await j.async_prepare()
+    assert j.retain_raw is True
+    await j.set_fit_profile(retain_raw=False,idle_seconds=25)
+    await j.shutdown()
+    again=m.WorkoutJournal(tmp_path,"id","Q5")
+    await again.async_prepare()
+    assert again.retain_raw is False
+    assert again.activity_monitor.idle_seconds==25
+    send(again,speed=1)
+    with pytest.raises(ValueError):
+        await again.set_fit_profile(retain_raw=True)
+    await again.shutdown()
