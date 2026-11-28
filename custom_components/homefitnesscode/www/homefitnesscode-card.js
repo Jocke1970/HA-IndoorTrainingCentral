@@ -466,7 +466,7 @@
       if(err)node.textContent="Fel vid passhämtning: "+err;
       else if(!s)node.textContent="Hämtar passinformation…";
       else if(s.active)node.textContent="● Spelar in · "+s.elapsed_s+
-        " s · "+Number(s.distance_km||0).toLocaleString("sv-SE",{maximumFractionDigits:3})+
+        " s · "+(s.current_met!=null?Number(s.current_met).toFixed(1)+" MET · ":"")+Number(s.distance_km||0).toLocaleString("sv-SE",{maximumFractionDigits:3})+
         " km · cirka "+Math.ceil((s.raw_bytes||0)/1024)+" kB rådata";
       else if(s.saving)node.textContent="Sparar pass och läser tillbaka rådata…";
       else node.textContent="Redo. Inspelning startar automatiskt när löpbandet rör sig.";
@@ -485,12 +485,35 @@
           return '<div class="workout-row"><strong>'+esc(date)+
             (x.complete?' · Sparat':' · Återställt efter avbrott')+'</strong>'+
             esc(duration)+' · '+esc(distance)+' km · '+esc(x.energy_kcal||0)+
-            ' kcal · '+(x.heart_rate_samples?'Puls '+esc(x.average_heart_rate_bpm)+' / max '+esc(x.max_heart_rate_bpm)+' bpm · ':'')+esc(x.raw_frames||0)+' datapaket</div>';
+            ' kcal · '+(x.heart_rate_samples?'Puls '+esc(x.average_heart_rate_bpm)+' / max '+esc(x.max_heart_rate_bpm)+' bpm · ':'')+esc(x.raw_frames||0)+' datapaket'+(x.average_met!=null?' · MET '+esc(x.average_met)+' / max '+esc(x.max_met)+' · '+esc(x.met_minutes)+' MET-min':'')+(x.complete?'<div class="actions"><button type="button" data-fit-id="'+esc(x.id)+'">Hämta FIT</button></div>':'')+'</div>';
         }).join(""):'<div class="workout-note">Inga sparade pass ännu.</div>';
+        history.querySelectorAll('[data-fit-id]').forEach(b=>b.addEventListener('click',()=>this.downloadFit(b.dataset.fitId)));
       }
       const path=this.shadowRoot.querySelector('[data-workout-path]');
       if(path)path.textContent=s?.storage_directory?
-        'Lagring på HA: '+s.storage_directory+' (rådata .jsonl + .summary.json)':'';
+        'Lagring på HA: '+s.storage_directory+' (FIT + rådata .jsonl + .summary.json)':'';
+    }
+    async downloadFit(id){
+      const key=this.chosen;
+      if(!key||this._workoutBusy)return;
+      const name=prompt("Passnamn","Löpband");
+      if(name===null)return;
+      const profile=confirm("Exportera med Garmin fēnix 7 Pro som enhetsidentitet? OK = Garmin, Avbryt = HA-ITC Native")?"fenix7pro":"native";
+      this._workoutBusy=key;
+      try{
+        const result=await this.h.callWS({type:"homefitnesscode/workouts",entry_id:key,
+          action:"fit_download",session_id:id,profile,name});
+        const bytes=Uint8Array.from(atob(result.base64),c=>c.charCodeAt(0));
+        const url=URL.createObjectURL(new Blob([bytes],{type:"application/octet-stream"}));
+        const a=document.createElement("a");
+        a.href=url;a.download=result.filename;a.click();
+        setTimeout(()=>URL.revokeObjectURL(url),1000);
+      }catch(err){
+        (this._workoutErrors??={})[key]=err?.message||String(err);
+      }finally{
+        this._workoutBusy=null;
+        if(this.chosen===key)this.paintWorkout();
+      }
     }
     async refreshWorkout(){
       if(!this.h?.callWS||!this.chosen||this._workoutBusy||this._workoutPolling)return;
