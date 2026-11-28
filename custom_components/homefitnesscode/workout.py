@@ -49,6 +49,8 @@ def replay_session(path: Path) -> dict | None:
     started = None
     finished = None
     samples = 0
+    external_hr = []
+    machine_hr = []
     maxima: dict[str, float] = {}
     last_positive_time = None
     last_movement = None
@@ -64,12 +66,19 @@ def replay_session(path: Path) -> dict | None:
                 started = row
             elif row.get("type") == "session_end":
                 finished = row
+            elif row.get("type") == "heart_rate":
+                bpm = row.get("bpm")
+                if isinstance(bpm, (int, float)) and 0 < bpm <= 255:
+                    external_hr.append(bpm)
             elif row.get("type") == "frame":
                 decoded = row.get("decoded") or {}
                 if not isinstance(decoded, dict):
                     continue
                 if row.get("characteristic", "").lower().endswith("2acd-0000-1000-8000-00805f9b34fb"):
                     samples += 1
+                    bpm = decoded.get("heart_rate_bpm")
+                    if isinstance(bpm, (int, float)) and 0 < bpm <= 255:
+                        machine_hr.append(bpm)
                     for key in METRICS:
                         value = decoded.get(key)
                         if isinstance(value, (int, float)) and not isinstance(value, bool):
@@ -86,6 +95,7 @@ def replay_session(path: Path) -> dict | None:
                               datetime.fromisoformat(started["timestamp"])).total_seconds())
         except (ValueError, TypeError):
             pass
+    hr = external_hr if external_hr else machine_hr if not started.get("hr_source_id") else []
     return {
         "id": path.stem,
         "device_name": started.get("device_name", ""),
@@ -101,7 +111,10 @@ def replay_session(path: Path) -> dict | None:
         "energy_kcal": round(maxima.get("energy_kcal", 0), 1),
         "max_speed_kmh": round(maxima.get("speed_kmh", 0), 2),
         "max_incline_percent": round(maxima.get("incline_percent", 0), 2),
-        "max_heart_rate_bpm": round(maxima.get("heart_rate_bpm", 0)),
+        "max_heart_rate_bpm": round(max(hr)) if hr else 0,
+        "average_heart_rate_bpm": round(sum(hr) / len(hr), 1) if hr else None,
+        "heart_rate_samples": len(hr),
+        "heart_rate_source": started.get("hr_source_name") or "training_machine",
         "raw_frames": samples,
         "raw_bytes": bytes_read,
         "file": path.name,
@@ -149,6 +162,8 @@ class WorkoutJournal:
         self.error: str | None = None
         self.path: Path | None = None
         self.started_at: str | None = None
+        self.hr_source_id = None
+        self.hr_source_name = None
         self._start_mono = 0.0
         self._last_moving = 0.0
         self._last_elapsed = 0.0
@@ -223,7 +238,8 @@ class WorkoutJournal:
         self._bytes_queued = 0
         self._enqueue(self.path, {"type": "session_start", "schema": SCHEMA,
                                   "timestamp": timestamp, "device_name": self.device_name,
-                                  "protocol": "ftms"})
+                                  "protocol": "ftms", "hr_source_id": self.hr_source_id,
+                                  "hr_source_name": self.hr_source_name})
         for frame in self._preroll:
             self._enqueue(self.path, frame)
         self._preroll.clear()
@@ -281,6 +297,18 @@ class WorkoutJournal:
             elif speed <= 0.2 and now - self._last_moving >= IDLE_FINISH_SECONDS:
                 self.close("stopped")
 
+    def record_heart_rate(self, source_id, bpm, rr_ms=None):
+        """Store only live notifications from the selected source during motion."""
+        if (not self.active or self.path is None or source_id != self.hr_source_id
+                or time.monotonic() - self._last_moving > 5
+                or not isinstance(bpm, (int, float)) or not 0 < bpm <= 255):
+            return
+        if not self._enqueue(self.path, {"type": "heart_rate", "timestamp": utc_now(),
+                                         "source_id": source_id, "bpm": bpm, "rr_interval_ms": rr_ms}):
+            self.close("write_queue_full")
+        elif self._bytes_queued >= MAX_SESSION_BYTES:
+            self.close("size_limit")
+
     def tick(self) -> None:
         if self.active and time.monotonic() - self._last_moving >= IDLE_FINISH_SECONDS:
             self.close("stopped")
@@ -315,6 +343,8 @@ class WorkoutJournal:
     def status(self) -> dict:
         return {
             "active": self.active,
+            "hr_source_id": self.hr_source_id,
+            "hr_source_name": self.hr_source_name,
             "saving": self.finalizing,
             "error": self.error,
             "started_at": self.started_at if self.active else None,

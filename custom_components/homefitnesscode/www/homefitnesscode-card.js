@@ -332,7 +332,7 @@
         void this.refreshWorkout();
         void this.refreshCapture();
       }));
-      this.shadowRoot.querySelector("[data-hr-source]")?.addEventListener("change",e=>{this.hrSource=e.target.value;this.draw();});
+      this.shadowRoot.querySelector("[data-hr-source]")?.addEventListener("change",e=>{const source=e.target.value;const key=this.chosen;if(this.deviceType(this.collect()[key])==="treadmill"){this.h.callWS({type:"homefitnesscode/workouts",entry_id:key,action:"hr_source",hr_source:source}).then(()=>{this.hrSource=source;this.draw();}).catch(err=>{this.message(err?.message||String(err));this.draw();});}else{this.hrSource=source;this.draw();}});
       this.shadowRoot.querySelectorAll('[data-action]').forEach(b=>b.addEventListener('click',()=>this.action(b.dataset.action)));
       this.shadowRoot.querySelectorAll('[data-set]').forEach(b=>b.addEventListener('click',()=>this.setTarget(b.dataset.set)));
       this.shadowRoot.querySelectorAll('[data-step-kind]').forEach(b=>
@@ -384,7 +384,9 @@
       if(hrSelect){
         const options='<option value="">Träningsmaskinen</option>'+hrBands.map(([id,v])=>'<option value="'+esc(id)+'">'+esc(this.deviceName(v))+'</option>').join("");
         if(hrSelect._options!==options){hrSelect.innerHTML=options;hrSelect._options=options;}
-        hrSelect.value=this.hrSource??hrBands[0]?.[0]??"";
+        const workout=this._workoutStates?.[key];
+        hrSelect.disabled=type==="treadmill"&&!!workout?.active;
+        hrSelect.value=hrSelect.disabled?(workout.hr_source_id||""):(this.hrSource??hrBands[0]?.[0]??"");
         const source=hrSelect.value?groups[hrSelect.value]:g;
         const pulse=source&&this.value(source,"connected")==="on"?this.display(source,"heart_rate_bpm"):"–";
         const battery=source&&this.value(source,"connected")==="on"?this.display(source,"battery_percent"):"–";
@@ -483,7 +485,7 @@
           return '<div class="workout-row"><strong>'+esc(date)+
             (x.complete?' · Sparat':' · Återställt efter avbrott')+'</strong>'+
             esc(duration)+' · '+esc(distance)+' km · '+esc(x.energy_kcal||0)+
-            ' kcal · '+esc(x.raw_frames||0)+' datapaket</div>';
+            ' kcal · '+(x.heart_rate_samples?'Puls '+esc(x.average_heart_rate_bpm)+' / max '+esc(x.max_heart_rate_bpm)+' bpm · ':'')+esc(x.raw_frames||0)+' datapaket</div>';
         }).join(""):'<div class="workout-note">Inga sparade pass ännu.</div>';
       }
       const path=this.shadowRoot.querySelector('[data-workout-path]');

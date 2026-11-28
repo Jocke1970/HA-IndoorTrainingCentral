@@ -13,6 +13,7 @@ from .const import DOMAIN
     probatio.Required("type"): "homefitnesscode/workouts",
     probatio.Required("entry_id"): str,
     probatio.Required("action"): str,
+    probatio.Optional("hr_source"): str,
 })
 @callback
 def ws_workouts(
@@ -25,12 +26,22 @@ def ws_workouts(
         connection.send_error(msg["id"], websocket_api.ERR_NOT_FOUND,
                               "No workout journal for this equipment")
         return
-    if msg["action"] not in ("status", "save"):
+    if msg["action"] not in ("status", "save", "hr_source"):
         connection.send_error(msg["id"], websocket_api.ERR_INVALID_FORMAT,
                               "Unknown workout command")
         return
     journal = state.workouts
-    if msg["action"] == "save":
+    if msg["action"] == "hr_source":
+        source = msg.get("hr_source", "")
+        band = hass.data.get(DOMAIN, {}).get(source)
+        if source and (band is None or band.data.get("machine_type") != "heart_rate_monitor"):
+            connection.send_error(msg["id"], websocket_api.ERR_INVALID_FORMAT, "Invalid heart rate source")
+            return
+        if journal.active:
+            connection.send_error(msg["id"], websocket_api.ERR_INVALID_FORMAT, "Heart rate source locked during workout")
+            return
+        state.hr_preference = source
+    elif msg["action"] == "save":
         journal.close("manual")
     else:
         journal.tick()

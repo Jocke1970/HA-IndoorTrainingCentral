@@ -35,7 +35,7 @@ class HFCState(DataUpdateCoordinator[dict[str, Any]]):
         self.transport = Transport(
             hass, entry.data["address"], initial_kind,
             entry.data.get("profile", "auto"), self._received, self._disconnected,
-            capture=self.capture, on_frame=self.workouts.on_frame,
+            capture=self.capture, on_frame=self._journal_frame,
         )
         self.data = {"connected": False, "armed": False, "session_status": "unknown",
                      "machine_type": initial_kind,
@@ -44,6 +44,17 @@ class HFCState(DataUpdateCoordinator[dict[str, Any]]):
         self.maintenance = Maintenance()
         self._maintenance_store = Store(hass, 1, f'{DOMAIN}.maintenance.{entry.entry_id}')
         self._maintenance_loaded = False
+        self.hr_preference = None  # None = automatic; empty string = machine
+
+    def _journal_frame(self, direction, characteristic, payload, **kwargs):
+        journal = self.workouts
+        if not journal.active and direction == 'rx' and characteristic.lower().startswith('00002acd'):
+            bands = {key: state for key, state in self.hass.data.get(DOMAIN, {}).items()
+                     if state.data.get('machine_type') == 'heart_rate_monitor'}
+            selected = self.hr_preference if self.hr_preference is not None else next(iter(bands), None)
+            journal.hr_source_id = selected or None
+            journal.hr_source_name = bands[selected].entry.title if selected in bands else None
+        journal.on_frame(direction, characteristic, payload, **kwargs)
 
     async def async_prepare_maintenance(self):
         self.maintenance = Maintenance(await self._maintenance_store.async_load())
@@ -67,6 +78,10 @@ class HFCState(DataUpdateCoordinator[dict[str, Any]]):
         status = observed_session_status(
             machine, self.data.get("session_status", "unknown"), values
         )
+        if machine == 'heart_rate_monitor' and self.transport.connected and 'heart_rate_bpm' in values:
+            for state in self.hass.data.get(DOMAIN, {}).values():
+                if state.data.get('machine_type') == 'treadmill' and hasattr(state, 'workouts'):
+                    state.workouts.record_heart_rate(self.entry.entry_id, values['heart_rate_bpm'], values.get('rr_interval_ms'))
         maintenance = {}
         if machine == "treadmill" and self._maintenance_loaded:
             if values.get("session_status") in ("paused", "stopped", "safety_stop", "reset"):

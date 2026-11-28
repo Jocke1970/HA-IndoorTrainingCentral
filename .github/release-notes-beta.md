@@ -1,6 +1,7 @@
-# HA-IndoorTrainingCentral 2026.11.0b14
+# HA-IndoorTrainingCentral 2026.11.0b15
 
-- Centralized icons for telemetry and controls across treadmill, bike, rower, heart rate and HEADWIND.
-- Dynamic connection, armed, machine, workout and fan-mode icons.
-- Native battery, connectivity, speed, power, distance and duration device classes.
-- No entity IDs, units, control behavior or workout storage changes.
+- Record selected BLE heart rate monitor notifications in treadmill workout JSONL, with source identity, timestamp, BPM and optional RR.
+- Replay average and maximum heart rate; show summary in workout history.
+- Source locked for each workout; default first registered band; select machine explicitly before starting.
+- Maintenance backend groundwork included; no maintenance UI or notification delivery yet.
+- Physical testing required. Source preference is in memory only.
