@@ -234,7 +234,7 @@ def write_metadata(target: Path, data: dict) -> None:
         temporary.unlink(missing_ok=True)
 
 
-def _write_summary(raw: Path, profile: str = "native") -> dict | None:
+def _write_summary(raw: Path, profile: str = "native", retain_raw: bool = True) -> dict | None:
     summary = replay_session(raw)
     if summary is None:
         return None
@@ -257,6 +257,26 @@ def _write_summary(raw: Path, profile: str = "native") -> dict | None:
         except (OSError, ValueError, TypeError, OverflowError) as err:
             summary["fit_error"] = str(err)[:160]
     write_metadata(target, summary)
+    # Never prune older journals during recovery, or incomplete/failed exports.
+    if not retain_raw and summary.get("complete") and summary.get("fit_available") and not summary.get("fit_error"):
+        try:
+            from garmin_fit_sdk import Decoder, Stream
+            archived = raw.with_suffix(".fit")
+            data = archived.read_bytes()
+            if not validate_fit(data):
+                raise ValueError("Archived FIT integrity failure")
+            messages, errors = Decoder(Stream.from_byte_array(bytearray(data))).read()
+            if errors or not all(messages.get(k) for k in ("file_id_mesgs","record_mesgs","lap_mesgs","session_mesgs","activity_mesgs")):
+                raise ValueError("Archived FIT decoding failure")
+            saved = json.loads(target.read_text(encoding="utf-8"))
+            if saved != summary:
+                raise ValueError("Summary verification failure")
+            raw.unlink()
+            summary["raw_available"] = False
+            write_metadata(target, summary)
+        except (OSError, ValueError, TypeError) as err:
+            summary["raw_available"] = raw.is_file()
+            summary["retention_error"] = str(err)[:160]
     return summary
 
 
@@ -294,6 +314,7 @@ class WorkoutJournal:
         self.device_name = device_name
         self.history: list[dict] = []
         self.fit_profile = "native"
+        self.retain_raw = True
         self._settings_lock = asyncio.Lock()
         self.active = False
         self.paused = False
@@ -319,7 +340,7 @@ class WorkoutJournal:
         self._saves: set[asyncio.Task] = set()
 
     async def async_prepare(self) -> None:
-        self.fit_profile, idle = await asyncio.to_thread(self._load_settings)
+        self.fit_profile, idle, self.retain_raw = await asyncio.to_thread(self._load_settings)
         self.activity_monitor.idle_seconds = idle
         self.history = await asyncio.to_thread(_recover, self.directory, self.fit_profile)
         self._worker = asyncio.create_task(self._write_loop())
@@ -330,21 +351,28 @@ class WorkoutJournal:
             profile = settings.get("fit_profile")
             idle = settings.get("idle_seconds", 15)
             return (profile if profile in PROFILES else "native",
-                    idle if type(idle) is int and 5 <= idle <= 300 else 15)
+                    idle if type(idle) is int and 5 <= idle <= 300 else 15,
+                    settings.get("retain_raw") is not False)
         except (OSError, ValueError, TypeError, AttributeError):
-            return "native", 15
+            return "native", 15, True
 
-    async def set_fit_profile(self, profile=None, idle_seconds=None):
+    async def set_fit_profile(self, profile=None, idle_seconds=None, retain_raw=None):
         async with self._settings_lock:
             profile = self.fit_profile if profile is None else profile
             idle = self.activity_monitor.idle_seconds if idle_seconds is None else idle_seconds
             if profile not in PROFILES or type(idle) is not int or not 5 <= idle <= 300:
                 raise ValueError("Invalid workout settings")
+            retain = self.retain_raw if retain_raw is None else retain_raw
+            if type(retain) is not bool:
+                raise ValueError("Invalid raw retention setting")
+            if (self.active or self.finalizing) and retain != self.retain_raw:
+                raise ValueError("Cannot change retention during workout")
             if self.active and idle != self.activity_monitor.idle_seconds:
                 raise ValueError("Cannot change inactivity threshold during workout")
             await asyncio.to_thread(write_metadata, self.directory / "settings.json",
-                                    {"fit_profile": profile, "retain_raw": True, "idle_seconds": idle})
+                                    {"fit_profile": profile, "retain_raw": retain, "idle_seconds": idle})
             self.fit_profile = profile
+            self.retain_raw = retain
             self.activity_monitor.idle_seconds = idle
 
     def _enqueue(self, path: Path, item: dict) -> bool:
@@ -525,7 +553,7 @@ class WorkoutJournal:
     async def _finalize(self, path: Path) -> None:
         try:
             await self._queue.join()
-            summary = await asyncio.to_thread(_write_summary, path, self.fit_profile)
+            summary = await asyncio.to_thread(_write_summary, path, self.fit_profile, self.retain_raw)
             if summary:
                 self.history = [summary] + [item for item in self.history
                                             if item.get("id") != summary["id"]]
@@ -552,7 +580,7 @@ class WorkoutJournal:
             "raw_path": str(self.path) if self.active and self.path else None,
             **(self._met.metrics() if self.active else MetAccumulator().metrics()),
             "fit_profile": self.fit_profile,
-            "retain_raw": True,
+            "retain_raw": self.retain_raw,
             "recent": self.history[:8],
             "storage_directory": str(self.directory),
         }
