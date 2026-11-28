@@ -138,6 +138,32 @@ async def test_stationary_elapsed_increasing_does_not_keep_workout_alive(tmp_pat
         send(j, speed=1, sec=2)
         send(j, speed=0, sec=10)
         j.tick()
-    assert j.active is False
+    assert j.active and j.paused and j.pause_pending
+    j.keep_paused()
+    assert j.paused and not j.pause_pending
+    send(j, speed=2, sec=20)
+    assert j.active and not j.paused
+    j.close("manual")
     await j.shutdown()
-    assert j.history[0]["reason"] == "stopped"
+    assert j.history[0]["reason"] == "manual"
+
+
+def test_replay_multiple_pauses(tmp_path):
+    raw = tmp_path / "pass.jsonl"
+    def row(kind, second, **extra):
+        return dict(type=kind, timestamp=f"2026-11-28T20:00:{second:02d}+00:00", **extra)
+    def frame(second, speed=3.6):
+        return row("frame", second, direction="rx", characteristic=FTMS,
+                   decoded={"speed_kmh":speed,"incline_percent":0,"elapsed_s":second})
+    m._append_rows(raw, [row("session_start",0),frame(0),frame(4),
+        frame(5,0),row("heart_rate",6,bpm=200),row("session_pause",5),
+        row("session_resume",20),frame(20),frame(24),
+        row("session_pause",25),row("session_resume",40),frame(40),frame(44),
+        row("session_pause",45),row("session_end",59,reason="manual")])
+    summary=m.replay_session(raw)
+    assert summary["elapsed_s"] == 15
+    assert summary["total_elapsed_s"] == 45
+    assert summary["paused_s"] == 30
+    assert summary["heart_rate_samples"] == 0
+    assert summary["average_met"] == pytest.approx(2.71, abs=.01)
+    assert summary["met_coverage_s"] == 12
