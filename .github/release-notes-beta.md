@@ -1,7 +1,6 @@
-# HA-IndoorTrainingCentral 2026.11.0b13
+# HA-IndoorTrainingCentral 2026.11.0b14
 
-- Standard BLE Heart Rate Service discovery and read-only telemetry: pulse, optional RR and battery.
-- Existing recognized heart rate entries migrate in place; generic entries can detect HRS by GATT.
-- Shared card heart rate source selector; no dedicated training tab.
-- Normalized HR fields prepare future ANT+ sources. ANT+ receiver, external HA source, journal and repeater integration are not implemented yet.
-- Hardware testing required.
+- Centralized icons for telemetry and controls across treadmill, bike, rower, heart rate and HEADWIND.
+- Dynamic connection, armed, machine, workout and fan-mode icons.
+- Native battery, connectivity, speed, power, distance and duration device classes.
+- No entity IDs, units, control behavior or workout storage changes.

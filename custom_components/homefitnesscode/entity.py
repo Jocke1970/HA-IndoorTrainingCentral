@@ -4,6 +4,7 @@ from homeassistant.helpers.device_registry import DeviceInfo
 
 from .const import DOMAIN
 from .entity_catalog import inferred_machine
+from .icons import icon_for
 
 
 class HFCEntity(CoordinatorEntity):
@@ -31,6 +32,10 @@ class HFCEntity(CoordinatorEntity):
             manufacturer=manufacturer,
             model=model,
         )
+
+    @property
+    def icon(self):
+        return icon_for(self.metric, self.coordinator.data)
 
     @property
     def extra_state_attributes(self):

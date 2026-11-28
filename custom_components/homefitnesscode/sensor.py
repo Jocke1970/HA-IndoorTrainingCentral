@@ -1,5 +1,5 @@
 """Telemetry for treadmill, indoor cycle trainer and indoor rower."""
-from homeassistant.components.sensor import SensorEntity, SensorStateClass
+from homeassistant.components.sensor import SensorEntity, SensorStateClass, SensorDeviceClass
 
 from .const import DOMAIN
 from .entity import HFCEntity
@@ -39,6 +39,17 @@ class HFCSensor(HFCEntity, SensorEntity):
         super().__init__(coordinator, key, label)
         self._attr_native_unit_of_measurement = unit
         self.allowed = allowed
+        self._attr_device_class = {
+            'battery_percent': SensorDeviceClass.BATTERY,
+            'power_w': SensorDeviceClass.POWER,
+            'average_power_w': SensorDeviceClass.POWER,
+            'speed_kmh': SensorDeviceClass.SPEED,
+            'average_speed_kmh': SensorDeviceClass.SPEED,
+            'distance_km': SensorDeviceClass.DISTANCE,
+            'elapsed_s': SensorDeviceClass.DURATION,
+            'remaining_s': SensorDeviceClass.DURATION,
+            'rr_interval_ms': SensorDeviceClass.DURATION,
+        }.get(key)
         if key not in ("machine_type", "protocol", "session_status", "gatt_inventory", "headwind_mode", "firmware_version"):
             self._attr_state_class = SensorStateClass.MEASUREMENT
 

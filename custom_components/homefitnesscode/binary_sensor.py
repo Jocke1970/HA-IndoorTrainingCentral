@@ -1,5 +1,5 @@
 """Connection health and explicit remote-control arm state."""
-from homeassistant.components.binary_sensor import BinarySensorEntity
+from homeassistant.components.binary_sensor import BinarySensorEntity, BinarySensorDeviceClass
 
 from .const import DOMAIN
 from .entity import HFCEntity
@@ -8,6 +8,8 @@ from .entity import HFCEntity
 class HFCBinarySensor(HFCEntity, BinarySensorEntity):
     def __init__(self, coordinator, key, label):
         super().__init__(coordinator, key, label)
+        if key == 'connected':
+            self._attr_device_class = BinarySensorDeviceClass.CONNECTIVITY
 
     @property
     def is_on(self):
