@@ -24,6 +24,7 @@ from .workout import write_metadata
     probatio.Optional("session_id"): str,
     probatio.Optional("profile"): str,
     probatio.Optional("name"): str,
+    probatio.Optional("idle_seconds"): int,
 })
 @websocket_api.async_response
 async def ws_workouts(
@@ -43,7 +44,7 @@ async def ws_workouts(
     journal = state.workouts
     if msg["action"] == "fit_settings":
         try:
-            await journal.set_fit_profile(msg.get("profile", ""))
+            await journal.set_fit_profile(msg.get("profile"), msg.get("idle_seconds"))
         except (OSError, ValueError, TypeError) as err:
             connection.send_error(msg["id"], "fit_error", str(err)[:160])
             return
