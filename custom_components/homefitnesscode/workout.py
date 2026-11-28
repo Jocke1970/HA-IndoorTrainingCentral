@@ -16,6 +16,8 @@ import re
 import time
 from uuid import uuid4
 
+from .fit_export import export_fit
+
 IDLE_FINISH_SECONDS = 15
 MAX_SESSION_SECONDS = 6 * 3600
 MAX_SESSION_BYTES = 30_000_000
@@ -183,6 +185,11 @@ def _write_summary(raw: Path) -> dict | None:
     summary = replay_session(raw)
     if summary is None:
         return None
+    if summary.get("complete") and summary.get("elapsed_s", 0) > 0:
+        try:
+            summary["fit_file"] = export_fit(raw, summary).name
+        except (OSError, ValueError, TypeError, OverflowError) as err:
+            summary["fit_error"] = str(err)[:160]
     target = raw.with_suffix(".summary.json")
     temporary = target.with_suffix(".summary.json.tmp")
     temporary.write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -199,6 +206,8 @@ def _recover(directory: Path) -> list[dict]:
         try:
             if summary_path.is_file():
                 summary = json.loads(summary_path.read_text(encoding="utf-8"))
+                if "met_method" not in summary or (summary.get("complete") and not path.with_suffix(".fit").is_file()):
+                    summary = _write_summary(path)
             else:
                 summary = _write_summary(path)
             if summary:
