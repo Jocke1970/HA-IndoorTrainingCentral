@@ -16,7 +16,7 @@ import re
 import time
 from uuid import uuid4
 
-from .fit_export import export_fit, EXPORT_VERSION, validate_fit
+from .fit_export import export_fit, EXPORT_VERSION, validate_fit, PROFILES
 
 IDLE_FINISH_SECONDS = 15
 MAX_SESSION_SECONDS = 6 * 3600
@@ -190,7 +190,7 @@ def write_metadata(target: Path, data: dict) -> None:
         temporary.unlink(missing_ok=True)
 
 
-def _write_summary(raw: Path) -> dict | None:
+def _write_summary(raw: Path, profile: str = "native") -> dict | None:
     summary = replay_session(raw)
     if summary is None:
         return None
@@ -205,9 +205,9 @@ def _write_summary(raw: Path) -> dict | None:
     summary.setdefault("session_name", "Löpband")
     if summary.get("complete") and summary.get("elapsed_s", 0) > 0:
         try:
-            summary["fit_file"] = export_fit(raw, summary).name
+            summary["fit_file"] = export_fit(raw, summary, profile=profile).name
             summary["fit_export_version"] = EXPORT_VERSION
-            summary["fit_profile"] = "native"
+            summary["fit_profile"] = profile
             summary["fit_available"] = True
             summary["raw_available"] = True
         except (OSError, ValueError, TypeError, OverflowError) as err:
@@ -216,7 +216,7 @@ def _write_summary(raw: Path) -> dict | None:
     return summary
 
 
-def _recover(directory: Path) -> list[dict]:
+def _recover(directory: Path, profile: str = "native") -> list[dict]:
     directory.mkdir(parents=True, exist_ok=True)
     ids = {p.stem for p in directory.glob("*.jsonl")}
     ids.update(p.name.removesuffix(".summary.json") for p in directory.glob("*.summary.json"))
@@ -229,7 +229,7 @@ def _recover(directory: Path) -> list[dict]:
             if path.is_file() and (not summary or "met_method" not in summary
                     or (summary.get("complete") and (summary.get("fit_export_version") != EXPORT_VERSION
                         or not path.with_suffix(".fit").is_file()))):
-                summary = _write_summary(path)
+                summary = _write_summary(path, summary.get("fit_profile", profile) if summary else profile)
             if summary:
                 summary["raw_available"] = path.is_file()
                 fit = path.with_suffix(".fit")
@@ -249,6 +249,8 @@ class WorkoutJournal:
         self.directory = Path(base) / safe_segment(entry_id)
         self.device_name = device_name
         self.history: list[dict] = []
+        self.fit_profile = "native"
+        self._settings_lock = asyncio.Lock()
         self.active = False
         self.finalizing = False
         self.error: str | None = None
@@ -270,8 +272,24 @@ class WorkoutJournal:
         self._saves: set[asyncio.Task] = set()
 
     async def async_prepare(self) -> None:
-        self.history = await asyncio.to_thread(_recover, self.directory)
+        self.fit_profile = await asyncio.to_thread(self._load_profile)
+        self.history = await asyncio.to_thread(_recover, self.directory, self.fit_profile)
         self._worker = asyncio.create_task(self._write_loop())
+
+    def _load_profile(self):
+        try:
+            profile = json.loads((self.directory / "settings.json").read_text(encoding="utf-8")).get("fit_profile")
+            return profile if profile in PROFILES else "native"
+        except (OSError, ValueError, TypeError, AttributeError):
+            return "native"
+
+    async def set_fit_profile(self, profile):
+        if profile not in PROFILES:
+            raise ValueError("Invalid FIT profile")
+        async with self._settings_lock:
+            await asyncio.to_thread(write_metadata, self.directory / "settings.json",
+                                    {"fit_profile": profile, "retain_raw": True})
+            self.fit_profile = profile
 
     def _enqueue(self, path: Path, item: dict) -> bool:
         if self._queue.full():
@@ -426,7 +444,7 @@ class WorkoutJournal:
     async def _finalize(self, path: Path) -> None:
         try:
             await self._queue.join()
-            summary = await asyncio.to_thread(_write_summary, path)
+            summary = await asyncio.to_thread(_write_summary, path, self.fit_profile)
             if summary:
                 self.history = [summary] + [item for item in self.history
                                             if item.get("id") != summary["id"]]
@@ -449,6 +467,8 @@ class WorkoutJournal:
             "raw_bytes": self._bytes_queued if self.active else 0,
             "raw_path": str(self.path) if self.active and self.path else None,
             **(self._met.metrics() if self.active else MetAccumulator().metrics()),
+            "fit_profile": self.fit_profile,
+            "retain_raw": True,
             "recent": self.history[:8],
             "storage_directory": str(self.directory),
         }
