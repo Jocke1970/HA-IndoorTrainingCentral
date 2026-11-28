@@ -53,3 +53,39 @@ def test_activity_sdk(tmp_path, profile):
     damaged[20] ^= 1
     assert not fit.validate_fit(damaged)
     assert raw.exists()
+
+
+def test_fit_pause_timing_and_met(tmp_path):
+    raw = tmp_path / "paused.jsonl"
+    def row(kind, second, **extra):
+        return dict(type=kind, timestamp=f"2026-11-28T20:00:{second:02d}+00:00", **extra)
+    def frame(second, distance, speed=3.6):
+        return row("frame", second, direction="rx",
+                   characteristic="00002acd-0000-1000-8000-00805f9b34fb",
+                   decoded={"speed_kmh":speed,"distance_km":distance,"incline_percent":0})
+    rows = [row("session_start",0),frame(0,0),frame(4,.004),
+            frame(5,.005,0),row("heart_rate",6,bpm=200,rr_interval_ms=300),
+            row("session_pause",5),row("session_resume",20),frame(20,.005),
+            frame(24,.009),row("session_pause",25),row("session_resume",40),
+            frame(40,.010),frame(44,.014),row("session_pause",45),
+            row("session_end",59,reason="manual")]
+    raw.write_text("\n".join(map(json.dumps,rows)),encoding="utf-8")
+    summary = {"started_at":rows[0]["timestamp"],"elapsed_s":15,
+               "distance_km":.015,"max_speed_kmh":3.6,"heart_rate_source":"M7",
+               "average_met":2.71,"max_met":2.71,"met_minutes":.542}
+    target=fit.export_fit(raw,summary)
+    messages,errors=Decoder(Stream.from_file(str(target))).read(convert_datetimes_to_dates=False)
+    assert not errors,errors
+    start=fit.fit_time(rows[0]["timestamp"])
+    session=messages["session_mesgs"][0]
+    assert session["total_timer_time"]==15
+    assert session["total_elapsed_time"]==45
+    assert messages["activity_mesgs"][0]["total_timer_time"]==15
+    assert [(x["timestamp"]-start,x["event_type"]) for x in messages["event_mesgs"]]==[
+        (0,"start"),(5,"stop_all"),(20,"start"),(25,"stop_all"),(40,"start"),(45,"stop_all")]
+    assert [x["timestamp"]-start for x in messages["record_mesgs"]]==[0,4,20,24,40,44]
+    assert not messages.get("hrv_mesgs")
+    assert len(messages["field_description_mesgs"])==4
+    assert session.get("developer_fields")
+    assert messages["record_mesgs"][0].get("developer_fields")
+    assert 2.71 == pytest.approx(next(iter(messages["record_mesgs"][0]["developer_fields"].values())),abs=.01)
