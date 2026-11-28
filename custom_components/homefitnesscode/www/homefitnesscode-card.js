@@ -32,12 +32,21 @@
       }
     }
     connectedCallback(){
+      this._displayVisibilityHandler??=()=>{if(document.visibilityState==="visible"&&this.displayMode)void this.acquireWakeLock();};
+      this._fullscreenHandler??=()=>{if(this._enteredFullscreen&&!document.fullscreenElement){this._enteredFullscreen=false;this.displayMode=false;void this.releaseWakeLock();this.paintViews();}};
+      document.addEventListener("visibilitychange",this._displayVisibilityHandler);
+      document.addEventListener("fullscreenchange",this._fullscreenHandler);
       if(!this._captureTimer)this._captureTimer=setInterval(()=>{
         void this.refreshCapture();
         void this.refreshWorkout();
       },5000);
     }
     disconnectedCallback(){
+      document.removeEventListener("visibilitychange",this._displayVisibilityHandler);
+      document.removeEventListener("fullscreenchange",this._fullscreenHandler);
+      this.displayMode=false;
+      void this.releaseWakeLock();
+      if(document.fullscreenElement===this)void document.exitFullscreen?.().catch(()=>{});
       if(this._captureTimer)clearInterval(this._captureTimer);
       this._captureTimer=null;
     }
@@ -210,7 +219,7 @@
       "button{font:inherit;font-size:13px;cursor:pointer;color:var(--primary-text-color);background:var(--secondary-background-color);border:1px solid var(--divider-color);border-radius:9px;padding:10px}",
       "button:disabled,input:disabled{opacity:.4;cursor:not-allowed}",
       ".danger{color:var(--error-color);border-color:var(--error-color)}",
-      ".view-nav{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin:12px 0}.view-nav button{min-height:44px;padding:8px 4px}.view-nav button[aria-pressed=true]{border-color:var(--primary-color);color:var(--primary-color);font-weight:700}[data-view-panel][hidden]{display:none!important}.display-mode .device-nav,.display-mode .kicker{display:none}.display-mode .val{font-size:clamp(24px,6vw,42px)}.display-mode .stats{grid-template-columns:repeat(2,minmax(0,1fr))}.controls{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:12px;margin-top:15px}",
+      ".view-nav{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin:12px 0}.view-nav button{min-height:44px;padding:8px 4px}.view-nav button[aria-pressed=true]{border-color:var(--primary-color);color:var(--primary-color);font-weight:700}[data-view-panel][hidden]{display:none!important}:host(:fullscreen){overflow:auto;background:var(--primary-background-color);color:var(--primary-text-color)}.display-mode .device-nav,.display-mode .kicker{display:none}.display-mode{min-height:0}.display-mode .tile{padding:10px}.display-mode .val{font-size:clamp(24px,6vw,42px)}.display-mode .stats{grid-template-columns:repeat(2,minmax(0,1fr))}.controls{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:12px;margin-top:15px}",
       ".target{display:grid;gap:6px;font-size:12px}",
       ".targetrow input{flex:1 1 100px;width:80px;min-width:0}",
       ".ftms-test{display:grid;gap:12px;margin-top:12px}",
@@ -235,6 +244,7 @@
       ".fan-line select{max-width:210px;flex:1 1 150px}",
       ".fan-note{font-size:12px;color:var(--secondary-text-color);margin:4px 0}",
       "@container (max-width:540px){.root{padding:12px}.head{display:grid;gap:10px}.device-nav{grid-template-columns:repeat(2,minmax(0,1fr))}.device-tab{padding:10px;gap:6px}.device-tab.is-selected{padding:9px}.device-tab-icon{font-size:18px;flex-basis:20px}.stats{grid-template-columns:repeat(2,minmax(0,1fr))}.val{font-size:22px}.controls{grid-template-columns:1fr}.actions button{flex:1}}",
+      "@media (orientation:landscape) and (min-width:600px){.display-mode .stats{grid-template-columns:repeat(3,minmax(0,1fr))}.display-mode .val{font-size:clamp(22px,4vw,36px)}}",
       "@container (max-width:400px){.ftms-step-grid{grid-template-columns:1fr}}",
       "@container (max-width:300px){.device-nav{grid-template-columns:1fr}.ftms-transport{grid-template-columns:1fr}}"
     ].join("");}
@@ -321,13 +331,13 @@
         esc(d.name)+'</h2></div></header>'+
         '<nav class="device-nav" aria-label="Välj träningsmaskin">'+tabs+'</nav>'+
         '<nav class="view-nav" aria-label="Välj vy"><button data-view="training">Träning</button><button data-view="history">Historik</button><button data-view="settings">⚙ Inställningar</button></nav>'+
-        '<div data-view-panel="training"><div class="actions"><button data-display-mode>Träningsdisplay</button></div><div data-hr-reading aria-live="polite">– bpm</div>'+trainPanel+fanPanel+workoutPanel+'</div>'+
+        '<div data-view-panel="training"><div class="actions"><button data-display-mode>Träningsdisplay</button><span class="note" data-display-status hidden></span></div><div data-hr-reading aria-live="polite">– bpm</div>'+trainPanel+fanPanel+workoutPanel+'</div>'+
         '<div data-view-panel="history">'+historyPanel+'</div>'+
         '<div data-view-panel="settings"><section class="panel"><h3>♥ Pulskälla</h3><select data-hr-source aria-label="Pulskälla"></select></section>'+settingsPanel+capturePanel+
         '<footer class="foot"><span data-protocol>Protokoll: –</span><span data-arm>Låst</span></footer></div>'+
         '</div></ha-card>';
-      this.shadowRoot.querySelectorAll('[data-view]').forEach(b=>b.addEventListener('click',()=>{this.currentView=b.dataset.view;this.displayMode=false;this.paintViews();}));
-      this.shadowRoot.querySelector('[data-display-mode]')?.addEventListener('click',()=>{this.displayMode=!this.displayMode;this.paintViews();});
+      this.shadowRoot.querySelectorAll('[data-view]').forEach(b=>b.addEventListener('click',()=>{this.currentView=b.dataset.view;void this.exitDisplayMode();}));
+      this.shadowRoot.querySelector('[data-display-mode]')?.addEventListener('click',()=>{void (this.displayMode?this.exitDisplayMode():this.enterDisplayMode());});
       this.paintViews();
       this.shadowRoot.querySelectorAll('[data-device-key]').forEach(button=>button.addEventListener('click',()=>{
         const id=button.dataset.deviceKey;
@@ -361,6 +371,35 @@
       this.paintWorkout();
       this.signature=key+':'+type+':'+this.visibleDeviceIds(groups).join(',')+':'+Object.keys(groups[key]).sort().join(',')+':'+this.fans().map(([id])=>id).join(',');
     }
+    async acquireWakeLock(){
+      if(!this.displayMode||this._wakeLock||this._wakeLockPending||!navigator.wakeLock||document.visibilityState!=="visible")return;
+      this._wakeLockPending=true;
+      try{
+        const lock=await navigator.wakeLock.request("screen");
+        if(!this.displayMode){await lock.release();return;}
+        this._wakeLock=lock;
+        lock.addEventListener("release",()=>{if(this._wakeLock===lock)this._wakeLock=null;this.paintViews();});
+      }catch(err){this._wakeLock=null;}
+      finally{this._wakeLockPending=false;this.paintViews();}
+    }
+    async releaseWakeLock(){
+      const lock=this._wakeLock;this._wakeLock=null;
+      if(lock)try{await lock.release();}catch(err){}
+    }
+    async enterDisplayMode(){
+      this.currentView="training";this.displayMode=true;this.paintViews();
+      if(this.requestFullscreen&&!document.fullscreenElement){
+        try{await this.requestFullscreen();if(this.displayMode)this._enteredFullscreen=true;
+          else if(document.fullscreenElement===this)await document.exitFullscreen();}
+        catch(err){this._enteredFullscreen=false;}
+      }
+      if(this.displayMode)void this.acquireWakeLock();
+    }
+    async exitDisplayMode(){
+      this.displayMode=false;this._enteredFullscreen=false;this.paintViews();
+      void this.releaseWakeLock();
+      if(document.fullscreenElement===this)try{await document.exitFullscreen();}catch(err){}
+    }
     paintViews(){
       const view=this.currentView||"training";
       this.shadowRoot.querySelectorAll('[data-view-panel]').forEach(p=>p.hidden=p.dataset.viewPanel!==view);
@@ -368,6 +407,8 @@
       this.shadowRoot.querySelector('.root')?.classList.toggle("display-mode",!!this.displayMode);
       const button=this.shadowRoot.querySelector('[data-display-mode]');
       if(button)button.textContent=this.displayMode?"Avsluta träningsdisplay":"Träningsdisplay";
+      const status=this.shadowRoot.querySelector("[data-display-status]");
+      if(status){status.hidden=!this.displayMode;status.textContent=this._wakeLock?"Skärmen hålls vaken":"Skärmlås styrs av enheten";}
     }
     draw(){
       if(!this.h)return;
