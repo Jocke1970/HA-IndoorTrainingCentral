@@ -36,7 +36,7 @@ async def ws_workouts(
         connection.send_error(msg["id"], websocket_api.ERR_NOT_FOUND,
                               "No workout journal for this equipment")
         return
-    if msg["action"] not in ("status", "save", "hr_source", "fit_download", "rename", "fit_settings"):
+    if msg["action"] not in ("status", "save", "hr_source", "fit_download", "rename", "fit_settings", "keep_paused"):
         connection.send_error(msg["id"], websocket_api.ERR_INVALID_FORMAT,
                               "Unknown workout command")
         return
@@ -85,6 +85,8 @@ async def ws_workouts(
             connection.send_error(msg["id"], websocket_api.ERR_INVALID_FORMAT, "Heart rate source locked during workout")
             return
         state.hr_preference = source
+    elif msg["action"] == "keep_paused":
+        journal.keep_paused()
     elif msg["action"] == "save":
         journal.close("manual")
     else:
