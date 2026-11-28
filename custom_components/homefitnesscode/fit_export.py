@@ -1,4 +1,4 @@
-"""Dependency-free FIT activity writer for treadmill journals.
+"""Garmin SDK FIT activity writer for treadmill journals.
 
 Exports standard FIT records, lap, session and activity. Raw journals remain
 authoritative; no invented Garmin identity or physiological metrics.
@@ -12,7 +12,7 @@ from uuid import UUID
 EPOCH = datetime(1989, 12, 31, tzinfo=timezone.utc)
 U8, U16, U32, S16, ENUM = 2, 0x84, 0x86, 0x83, 0
 STRING, BYTE, FLOAT = 7, 13, 0x88
-EXPORT_VERSION = 4
+EXPORT_VERSION = 5
 PROFILES = {"native": (255, 1, "HA-IndoorTrainingCentral"),
             "fenix7pro": (1, 4375, "fenix 7 Pro")}
 FORMATS = {U8: ("B", 255), U16: ("H", 65535), U32: ("I", 4294967295),
@@ -119,57 +119,64 @@ def export_fit(raw, summary, *, profile="native", target=None):
                         bucket[key] = values[key]
     if not any(any(v.get(k) is not None for k in ("speed_kmh", "distance_km", "heart_rate_bpm", "incline_percent")) for v in buckets.values()):
         raise ValueError("FIT requires at least one valid record")
-    w = Writer()
-    w.message(0, 0, [(0, ENUM), (1, U16), (2, U16), (4, U32)], [4, manufacturer, product, start])
-    w.message(6, 23, [(253,U32),(0,U8),(2,U16),(4,U16),(27,STRING,40)],
-              [start,0,manufacturer,product,creator])
-    for index, name in enumerate((summary.get("device_name"), summary.get("heart_rate_source")), 1):
+    from garmin_fit_sdk import Encoder, Decoder, Stream, Profile, BASE_TYPE
+    ids = Profile["mesg_num"]
+    app = {"application_id": list(UUID("9bed1f83-e4b1-4eb6-9035-c15972a15a4e").bytes),
+           "developer_data_index": 0, "application_version": EXPORT_VERSION}
+    descriptions = {}
+    for number, name, unit, native in ((0,"met","MET","RECORD"),(1,"average_met","MET","SESSION"),
+                                       (2,"max_met","MET","SESSION"),(3,"met_minutes","MET-min","SESSION")):
+        descriptions[number] = {"developer_data_id_mesg": app,
+            "field_description_mesg": {"developer_data_index": 0, "field_definition_number": number,
+                "fit_base_type_id": BASE_TYPE["FLOAT32"], "field_name": name,
+                "units": unit, "native_mesg_num": ids[native]}}
+    encoder = Encoder(field_descriptions=descriptions)
+    def write(kind, **values):
+        encoder.on_mesg(ids[kind], {k:v for k,v in values.items() if v is not None})
+    write("FILE_ID", type="activity", manufacturer=manufacturer, product=product, time_created=start)
+    write("DEVICE_INFO", timestamp=start, device_index=0, manufacturer=manufacturer, product=product, product_name=creator)
+    for index,name in enumerate((summary.get("device_name"),summary.get("heart_rate_source")),1):
         if name and name != "training_machine":
-            w.message(6, 23, [(253,U32),(0,U8),(27,STRING,80)], [start,index,name])
-    w.message(7, 207, [(1,BYTE,16),(3,U8),(4,U32)],
-              [UUID("9bed1f83-e4b1-4eb6-9035-c15972a15a4e").bytes,0,EXPORT_VERSION])
-    for number, name, unit in ((0,"met","MET"),(1,"average_met","MET"),
-                               (2,"max_met","MET"),(3,"met_minutes","MET-min")):
-        w.message(8,206,[(0,U8),(1,U8),(2,U8),(3,STRING,32),(8,STRING,16)],
-                  [0,number,FLOAT & 0x1f,name,unit])
-    event = [(253, U32), (0, ENUM), (1, ENUM)]
-    w.message(1, 21, event, [start, 0, 0])
-    fields = [(253, U32), (3, U8), (5, U32), (6, U16), (9, S16)]
-    for stamp, v in sorted(buckets.items()):
-        for rr in rr_buckets.get(stamp, ()):
-            w.message(9, 78, [(0, U16)], [rr])
+            write("DEVICE_INFO", timestamp=start, device_index=index, product_name=name)
+    write("DEVELOPER_DATA_ID", **app)
+    for desc in descriptions.values():
+        write("FIELD_DESCRIPTION", **desc["field_description_mesg"])
+    write("EVENT", timestamp=start, event="timer", event_type="start")
+    for stamp,v in sorted(buckets.items()):
         speed, grade = v.get("speed_kmh"), v.get("incline_percent")
         met = None
         if isinstance(speed,(int,float)) and isinstance(grade,(int,float)) and 0.2 < speed <= 30 and 0 <= grade <= 30:
             h, vert = (0.1,1.8) if speed < 8 else (0.2,0.9)
             met = (3.5 + speed * 1000 / 60 * (h + vert * grade / 100)) / 3.5
+        if rr_buckets.get(stamp):
+            write("HRV", time=[rr/1000 for rr in rr_buckets[stamp]])
         if not any(v.get(k) is not None for k in ("speed_kmh","distance_km","incline_percent","heart_rate_bpm")):
             continue
-        w.message(2, 20, fields, [stamp, scaled(v.get("heart_rate_bpm")),
-                  scaled(v.get("distance_km"), 100000),
-                  scaled(v.get("speed_kmh"), 1000 / 3.6),
-                  scaled(v.get("incline_percent"), 100)], developer=((0,met),))
-    w.message(1, 21, event, [end, 0, 4])
-    common = [end, start, duration * 1000, duration * 1000,
-              scaled(summary.get("distance_km"), 100000),
-              scaled(summary.get("energy_kcal")),
-              scaled(summary.get("average_speed_kmh"), 1000 / 3.6),
-              scaled(summary.get("max_speed_kmh"), 1000 / 3.6),
-              scaled(summary.get("average_heart_rate_bpm")),
-              scaled(summary.get("max_heart_rate_bpm")) or None]
-    w.message(3, 19, [(253,U32),(2,U32),(7,U32),(8,U32),(9,U32),(11,U16),
-                      (13,U16),(14,U16),(15,U8),(16,U8),(25,ENUM),(254,U16)],
-              common + [1,0])
-    w.message(4, 18, [(253,U32),(2,U32),(7,U32),(8,U32),(9,U32),(11,U16),
-                      (14,U16),(15,U16),(16,U8),(17,U8),(5,ENUM),(6,ENUM),
-                      (25,U16),(26,U16),(254,U16)], common + [1,1,0,1,0],
-              developer=tuple((i,summary.get(k)) for i,k in ((1,"average_met"),(2,"max_met"),(3,"met_minutes"))))
+        write("RECORD", timestamp=stamp, heart_rate=scaled(v.get("heart_rate_bpm")),
+              distance=v["distance_km"]*1000 if v.get("distance_km") is not None else None,
+              speed=speed/3.6 if speed is not None else None, grade=grade,
+              developer_fields={0:met} if met is not None else None)
+    write("EVENT", timestamp=end, event="timer", event_type="stop_all")
+    common = dict(timestamp=end, start_time=start, total_elapsed_time=duration, total_timer_time=duration,
+                  total_distance=summary.get("distance_km",0)*1000,
+                  total_calories=scaled(summary.get("energy_kcal")),
+                  avg_speed=summary.get("average_speed_kmh",0)/3.6,
+                  max_speed=summary.get("max_speed_kmh",0)/3.6,
+                  avg_heart_rate=scaled(summary.get("average_heart_rate_bpm")),
+                  max_heart_rate=scaled(summary.get("max_heart_rate_bpm")) or None,
+                  sport="running", message_index=0)
+    write("LAP", **common)
+    write("SESSION", **common, sub_sport="treadmill", first_lap_index=0, num_laps=1,
+          developer_fields={i:summary[k] for i,k in ((1,"average_met"),(2,"max_met"),(3,"met_minutes")) if summary.get(k) is not None})
     offset = int(datetime.fromisoformat(summary["started_at"]).astimezone().utcoffset().total_seconds())
-    w.message(5, 34, [(253,U32),(0,U32),(1,U16),(2,ENUM),(3,ENUM),(4,ENUM),(5,U32)],
-              [end,duration*1000,1,0,26,1,end+offset])
-    data = w.finish()
-    if not validate_fit(data):
-        raise ValueError("FIT CRC or length check failed")
+    write("ACTIVITY", timestamp=end, total_timer_time=duration, num_sessions=1,
+          local_timestamp=end+offset, type="manual", event="activity", event_type="stop")
+    data = bytes(encoder.close())
+    if not validate_fit(data) or not Decoder(Stream.from_byte_array(bytearray(data))).check_integrity():
+        raise ValueError("FIT integrity check failed")
+    messages, errors = Decoder(Stream.from_byte_array(bytearray(data))).read()
+    if errors or not all(messages.get(k) for k in ("file_id_mesgs","record_mesgs","lap_mesgs","session_mesgs","activity_mesgs")):
+        raise ValueError(f"FIT SDK validation failed: {errors}")
     target = target if target is not None else raw.with_suffix(".fit")
     temporary = target.with_suffix(".fit.tmp")
     temporary.write_bytes(data)
