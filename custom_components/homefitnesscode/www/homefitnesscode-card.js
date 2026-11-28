@@ -210,7 +210,7 @@
       "button{font:inherit;font-size:13px;cursor:pointer;color:var(--primary-text-color);background:var(--secondary-background-color);border:1px solid var(--divider-color);border-radius:9px;padding:10px}",
       "button:disabled,input:disabled{opacity:.4;cursor:not-allowed}",
       ".danger{color:var(--error-color);border-color:var(--error-color)}",
-      ".controls{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:12px;margin-top:15px}",
+      ".view-nav{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin:12px 0}.view-nav button{min-height:44px;padding:8px 4px}.view-nav button[aria-pressed=true]{border-color:var(--primary-color);color:var(--primary-color);font-weight:700}[data-view-panel][hidden]{display:none!important}.display-mode .device-nav,.display-mode .kicker{display:none}.display-mode .val{font-size:clamp(24px,6vw,42px)}.display-mode .stats{grid-template-columns:repeat(2,minmax(0,1fr))}.controls{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:12px;margin-top:15px}",
       ".target{display:grid;gap:6px;font-size:12px}",
       ".targetrow input{flex:1 1 100px;width:80px;min-width:0}",
       ".ftms-test{display:grid;gap:12px;margin-top:12px}",
@@ -293,16 +293,14 @@
         '</section>'
       ):"";
       const workoutPanel=type==="treadmill"?
-        '<details class="panel workout" data-workout><summary>🏃 Träningspass</summary>'+
-        '<div class="workout-content"><div class="workout-note" data-workout-status>Hämtar passinformation…</div>'+
-        '<div class="actions"><button type="button" data-workout-save disabled>Avsluta och spara pass</button></div>'+
-        '<label class="workout-note">FIT-exportprofil <select data-fit-profile><option value="native">HA-ITC Native</option><option value="fenix7pro">Garmin fēnix 7 Pro</option></select></label>'+ 
-        '<label class="workout-note">Paus efter inaktivitet (sekunder) <input data-idle-seconds type="number" min="5" max="300" step="1" value="15"></label>'+ 
-        '<p class="workout-note">JSONL behålls under betafasen.</p>'+
-        '<div class="workout-history" data-workout-history></div>'+
-        '<div class="workout-note" data-workout-path></div>'+
-        '<p class="workout-note">Automatisk inspelning när bandet börjar röra sig. Rå FTMS-data sparas som JSONL på HA-servern, och slutvärden beräknas från filen. Du behöver inte aktivera Protocol Capture.</p>'+
-        '</div></details>':"";
+        '<section class="panel workout" data-workout><div class="workout-content"><div class="workout-note" data-workout-status>Hämtar passinformation…</div>'+
+        '<div class="actions"><button type="button" data-workout-save disabled>Avsluta och spara pass</button></div></div></section>':"";
+      const historyPanel=type==="treadmill"?'<section class="panel"><h3>Träningshistorik</h3><div class="workout-history" data-workout-history></div></section>':'<p class="note">Träningshistorik är ännu inte tillgänglig för denna maskin.</p>';
+      const settingsPanel=type==="treadmill"?
+        '<section class="panel"><h3>Träningspass och FIT</h3><div class="workout-content">'+
+        '<label class="workout-note">FIT-exportprofil <select data-fit-profile><option value="native">HA-ITC Native</option><option value="fenix7pro">Garmin fēnix 7 Pro</option></select></label>'+
+        '<label class="workout-note">Paus efter inaktivitet (sekunder) <input data-idle-seconds type="number" min="5" max="300" step="1" value="15"></label>'+
+        '<p class="workout-note">JSONL behålls under betafasen.</p><div class="workout-note" data-workout-path></div></div></section>':"";
       const capturePanel='<details class="panel capture" data-capture><summary>🔍 Protocol Capture</summary>'+
         '<div class="capture-content"><p class="note">Manuell rådatainspelning för analys (högst 10 minuter, 3 000 paket eller 750 kB). Ingen påverkan på maskinens styrning.</p>'+
         '<div class="capture-detail" data-capture-status role="status" aria-live="polite">Hämtar status…</div>'+
@@ -322,10 +320,15 @@
         '<h2 class="machine-heading">'+(type==="treadmill"?'<span class="machine-runner" data-machine-runner aria-hidden="true">🏃</span>':"")+
         esc(d.name)+'</h2></div></header>'+
         '<nav class="device-nav" aria-label="Välj träningsmaskin">'+tabs+'</nav>'+
-        '<section><h3>♥ Pulskälla</h3><select data-hr-source aria-label="Pulskälla"></select><div data-hr-reading aria-live="polite">– bpm</div></section>'+
-        trainPanel+fanPanel+workoutPanel+capturePanel+
-        '<footer class="foot"><span data-protocol>Protokoll: –</span><span data-arm>Låst</span></footer>'+
+        '<nav class="view-nav" aria-label="Välj vy"><button data-view="training">Träning</button><button data-view="history">Historik</button><button data-view="settings">⚙ Inställningar</button></nav>'+
+        '<div data-view-panel="training"><div class="actions"><button data-display-mode>Träningsdisplay</button></div><div data-hr-reading aria-live="polite">– bpm</div>'+trainPanel+fanPanel+workoutPanel+'</div>'+
+        '<div data-view-panel="history">'+historyPanel+'</div>'+
+        '<div data-view-panel="settings"><section class="panel"><h3>♥ Pulskälla</h3><select data-hr-source aria-label="Pulskälla"></select></section>'+settingsPanel+capturePanel+
+        '<footer class="foot"><span data-protocol>Protokoll: –</span><span data-arm>Låst</span></footer></div>'+
         '</div></ha-card>';
+      this.shadowRoot.querySelectorAll('[data-view]').forEach(b=>b.addEventListener('click',()=>{this.currentView=b.dataset.view;this.displayMode=false;this.paintViews();}));
+      this.shadowRoot.querySelector('[data-display-mode]')?.addEventListener('click',()=>{this.displayMode=!this.displayMode;this.paintViews();});
+      this.paintViews();
       this.shadowRoot.querySelectorAll('[data-device-key]').forEach(button=>button.addEventListener('click',()=>{
         const id=button.dataset.deviceKey;
         if(!groups[id]||id===this.chosen)return;
@@ -357,6 +360,14 @@
       this.paintCapture();
       this.paintWorkout();
       this.signature=key+':'+type+':'+this.visibleDeviceIds(groups).join(',')+':'+Object.keys(groups[key]).sort().join(',')+':'+this.fans().map(([id])=>id).join(',');
+    }
+    paintViews(){
+      const view=this.currentView||"training";
+      this.shadowRoot.querySelectorAll('[data-view-panel]').forEach(p=>p.hidden=p.dataset.viewPanel!==view);
+      this.shadowRoot.querySelectorAll('[data-view]').forEach(b=>b.setAttribute("aria-pressed",String(b.dataset.view===view)));
+      this.shadowRoot.querySelector('.root')?.classList.toggle("display-mode",!!this.displayMode);
+      const button=this.shadowRoot.querySelector('[data-display-mode]');
+      if(button)button.textContent=this.displayMode?"Avsluta träningsdisplay":"Träningsdisplay";
     }
     draw(){
       if(!this.h)return;
