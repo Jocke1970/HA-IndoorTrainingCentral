@@ -296,6 +296,8 @@
         '<details class="panel workout" data-workout><summary>🏃 Träningspass</summary>'+
         '<div class="workout-content"><div class="workout-note" data-workout-status>Hämtar passinformation…</div>'+
         '<div class="actions"><button type="button" data-workout-save disabled>Avsluta och spara pass</button></div>'+
+        '<label class="workout-note">FIT-exportprofil <select data-fit-profile><option value="native">HA-ITC Native</option><option value="fenix7pro">Garmin fēnix 7 Pro</option></select></label>'+ 
+        '<p class="workout-note">JSONL behålls under betafasen.</p>'+
         '<div class="workout-history" data-workout-history></div>'+
         '<div class="workout-note" data-workout-path></div>'+
         '<p class="workout-note">Automatisk inspelning när bandet börjar röra sig. Rå FTMS-data sparas som JSONL på HA-servern, och slutvärden beräknas från filen. Du behöver inte aktivera Protocol Capture.</p>'+
@@ -347,6 +349,7 @@
       this.shadowRoot.querySelectorAll('[data-capture-action]').forEach(b=>
         b.addEventListener('click',()=>this.captureAction(b.dataset.captureAction)));
       this.shadowRoot.querySelector('[data-workout-save]')?.addEventListener('click',()=>this.saveWorkout());
+      this.shadowRoot.querySelector('[data-fit-profile]')?.addEventListener('change',e=>this.updateWorkout("fit_settings",{profile:e.target.value}));
       this.paintCapture();
       this.paintWorkout();
       this.signature=key+':'+type+':'+this.visibleDeviceIds(groups).join(',')+':'+Object.keys(groups[key]).sort().join(',')+':'+this.fans().map(([id])=>id).join(',');
@@ -472,6 +475,8 @@
       else node.textContent="Redo. Inspelning startar automatiskt när löpbandet rör sig.";
       const btn=this.shadowRoot.querySelector('[data-workout-save]');
       if(btn)btn.disabled=busy||!s?.active;
+      const profile=this.shadowRoot.querySelector('[data-fit-profile]');
+      if(profile){profile.value=s?.fit_profile||"native";profile.disabled=busy||!s;}
       const history=this.shadowRoot.querySelector('[data-workout-history]');
       if(history){
         const sessions=s?.recent||[];
@@ -482,27 +487,47 @@
             seconds%60].map(n=>String(n).padStart(2,"0")).join(":");
           const distance=Number(x.distance_km||0).toLocaleString("sv-SE",
             {minimumFractionDigits:2,maximumFractionDigits:3});
-          return '<div class="workout-row"><strong>'+esc(date)+
+          return '<div class="workout-row"><strong>'+esc(x.session_name||"Löpband")+' · '+esc(date)+
             (x.complete?' · Sparat':' · Återställt efter avbrott')+'</strong>'+
             esc(duration)+' · '+esc(distance)+' km · '+esc(x.energy_kcal||0)+
-            ' kcal · '+(x.heart_rate_samples?'Puls '+esc(x.average_heart_rate_bpm)+' / max '+esc(x.max_heart_rate_bpm)+' bpm · ':'')+esc(x.raw_frames||0)+' datapaket'+(x.average_met!=null?' · MET '+esc(x.average_met)+' / max '+esc(x.max_met)+' · '+esc(x.met_minutes)+' MET-min':'')+(x.complete?'<div class="actions"><button type="button" data-fit-id="'+esc(x.id)+'">Hämta FIT</button></div>':'')+'</div>';
+            ' kcal · '+(x.heart_rate_samples?'Puls '+esc(x.average_heart_rate_bpm)+' / max '+esc(x.max_heart_rate_bpm)+' bpm · ':'')+esc(x.raw_frames||0)+' datapaket'+(x.average_met!=null?' · MET '+esc(x.average_met)+' / max '+esc(x.max_met)+' · '+esc(x.met_minutes)+' MET-min':'')+(x.complete?'<div class="actions"><button type="button" data-fit-id="'+esc(x.id)+'">Hämta FIT</button><button type="button" data-rename-id="'+esc(x.id)+'">Byt namn</button></div>':'')+'</div>';
         }).join(""):'<div class="workout-note">Inga sparade pass ännu.</div>';
         history.querySelectorAll('[data-fit-id]').forEach(b=>b.addEventListener('click',()=>this.downloadFit(b.dataset.fitId)));
+        history.querySelectorAll('[data-rename-id]').forEach(b=>b.addEventListener('click',()=>{
+          const id=b.dataset.renameId;
+          const name=prompt("Passnamn",sessions.find(x=>x.id===id)?.session_name||"Löpband");
+          if(name!==null)this.updateWorkout("rename",{session_id:id,name});
+        }));
       }
       const path=this.shadowRoot.querySelector('[data-workout-path]');
       if(path)path.textContent=s?.storage_directory?
         'Lagring på HA: '+s.storage_directory+' (FIT + rådata .jsonl + .summary.json)':'';
     }
+    async updateWorkout(action,extra){
+      const key=this.chosen;
+      if(!key||this._workoutBusy)return;
+      this._workoutBusy=key;
+      try{
+        const result=await this.h.callWS({type:"homefitnesscode/workouts",entry_id:key,action,...extra});
+        (this._workoutStates??={})[key]=result;
+        if(this._workoutErrors)delete this._workoutErrors[key];
+      }catch(err){
+        (this._workoutErrors??={})[key]=err?.message||String(err);
+      }finally{
+        this._workoutBusy=null;
+        if(this.chosen===key)this.paintWorkout();
+      }
+    }
     async downloadFit(id){
       const key=this.chosen;
       if(!key||this._workoutBusy)return;
-      const name=prompt("Passnamn","Löpband");
-      if(name===null)return;
-      const profile=confirm("Exportera med Garmin fēnix 7 Pro som enhetsidentitet? OK = Garmin, Avbryt = HA-ITC Native")?"fenix7pro":"native";
+      const state=this._workoutStates?.[key];
+      const session=state?.recent?.find(x=>x.id===id);
+      const profile=session?.raw_available===false?(session.fit_profile||"native"):(state?.fit_profile||"native");
       this._workoutBusy=key;
       try{
         const result=await this.h.callWS({type:"homefitnesscode/workouts",entry_id:key,
-          action:"fit_download",session_id:id,profile,name});
+          action:"fit_download",session_id:id,profile});
         const bytes=Uint8Array.from(atob(result.base64),c=>c.charCodeAt(0));
         const url=URL.createObjectURL(new Blob([bytes],{type:"application/octet-stream"}));
         const a=document.createElement("a");
